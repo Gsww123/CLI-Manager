@@ -54,6 +54,14 @@ impl ExtensionCli {
     }
 }
 
+// 为旧版 canonical 记录提供三个 CLI 默认开启状态；全局页后续可逐项关闭。
+pub(crate) fn default_enabled_by_cli() -> BTreeMap<String, bool> {
+    ExtensionCli::all()
+        .into_iter()
+        .map(|cli| (cli.key().to_string(), true))
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum McpTransport {
@@ -108,6 +116,8 @@ pub struct McpResource {
     pub timeout: Option<McpTimeout>,
     #[serde(default)]
     pub per_cli_extensions: BTreeMap<String, Map<String, Value>>,
+    #[serde(default = "default_enabled_by_cli")]
+    pub enabled_by_cli: BTreeMap<String, bool>,
     pub source: Option<McpResourceSource>,
     #[serde(default, flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -130,9 +140,17 @@ pub struct McpResourceRedacted {
     pub secret_refs: BTreeMap<String, String>,
     pub timeout: Option<McpTimeout>,
     pub per_cli_extensions: BTreeMap<String, Map<String, Value>>,
+    pub enabled_by_cli: BTreeMap<String, bool>,
     pub source: Option<McpResourceSource>,
     pub extra: BTreeMap<String, Value>,
     pub redacted_fields: Vec<String>,
+}
+
+impl McpResource {
+    // 返回资源在目标 CLI 的全局开关；缺少旧记录字段时保持兼容并默认开启。
+    pub fn enabled_for(&self, cli: ExtensionCli) -> bool {
+        self.enabled_by_cli.get(cli.key()).copied().unwrap_or(true)
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -269,6 +287,7 @@ pub fn validate_resource(resource: &McpResource) -> Vec<McpValidationIssue> {
     validate_secret_refs(&mut issues, &resource.secret_refs);
     validate_timeout(&mut issues, resource.timeout.as_ref());
     validate_extensions(&mut issues, resource);
+    validate_enabled_by_cli(&mut issues, resource);
     validate_source(&mut issues, resource.source.as_ref());
 
     match resource.transport {
@@ -373,6 +392,7 @@ pub fn redact_resource(resource: &McpResource) -> McpResourceRedacted {
         secret_refs,
         timeout: resource.timeout.clone(),
         per_cli_extensions,
+        enabled_by_cli: resource.enabled_by_cli.clone(),
         source: resource.source.as_ref().map(|source| McpResourceSource {
             kind: source.kind.clone(),
             identity: redact_text(&source.identity),
@@ -621,6 +641,15 @@ fn validate_extensions(issues: &mut Vec<McpValidationIssue>, resource: &McpResou
     }
 }
 
+// 只接受三个已知 CLI 的开关键，防止拼写错误形成用户看不见的第四个目标。
+fn validate_enabled_by_cli(issues: &mut Vec<McpValidationIssue>, resource: &McpResource) {
+    for cli in resource.enabled_by_cli.keys() {
+        if !ExtensionCli::all().iter().any(|known| known.key() == cli) {
+            issues.push(issue("unknown_cli_enabled", &format!("enabledByCli.{cli}")));
+        }
+    }
+}
+
 // 校验导入来源元数据，但不把来源路径当作可执行配置。
 fn validate_source(issues: &mut Vec<McpValidationIssue>, source: Option<&McpResourceSource>) {
     let Some(source) = source else {
@@ -747,6 +776,7 @@ mod tests {
             secret_refs: BTreeMap::from([("env:API_KEY".to_string(), "keychain/demo".to_string())]),
             timeout: None,
             per_cli_extensions: BTreeMap::new(),
+            enabled_by_cli: BTreeMap::new(),
             source: None,
             extra: BTreeMap::new(),
         }
@@ -770,6 +800,16 @@ mod tests {
             .issues
             .iter()
             .any(|item| item.code == "stdio_command_required"));
+    }
+
+    #[test]
+    // 别名不能形成隐形开关键；只有 canonical 的三个 CLI 键可进入持久化模型。
+    fn validation_rejects_noncanonical_cli_switch_key() {
+        let mut value = resource();
+        value.enabled_by_cli.insert("grokbuild".to_string(), false);
+        assert!(validate_resource(&value)
+            .iter()
+            .any(|item| item.code == "unknown_cli_enabled"));
     }
 
     #[test]

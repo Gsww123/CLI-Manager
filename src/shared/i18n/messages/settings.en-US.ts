@@ -8,6 +8,7 @@ export const en: Record<keyof typeof zh, string> = {
   "settings.tabs.general.label": "General",
   "settings.tabs.general.title": "General Settings",
   "settings.tabs.general.description": "Configure app theme, palette, UI font, and global preferences.",
+  "settings.tabs.extensions.label": "MCP & Skills",
   "settings.tabs.desktopPet.label": "Desktop Pet",
   "settings.tabs.desktopPet.title": "CLI-Manager Desktop Pet",
   "settings.tabs.desktopPet.description": "Show session status, manage pet appearance, and download or import public pet packages.",

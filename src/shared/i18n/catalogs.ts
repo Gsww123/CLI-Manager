@@ -8,6 +8,8 @@ import { zh as commonZh } from "./messages/common.zh-CN";
 import { en as commonEn } from "./messages/common.en-US";
 import { zh as desktopPetZh } from "./messages/desktop-pet.zh-CN";
 import { en as desktopPetEn } from "./messages/desktop-pet.en-US";
+import { zh as extensionsZh } from "./messages/extensions.zh-CN";
+import { en as extensionsEn } from "./messages/extensions.en-US";
 import { zh as filesZh } from "./messages/files.zh-CN";
 import { en as filesEn } from "./messages/files.en-US";
 import { zh as gitZh } from "./messages/git.zh-CN";
@@ -33,6 +35,7 @@ export const zh = {
   ...commandToolsZh,
   ...commonZh,
   ...desktopPetZh,
+  ...extensionsZh,
   ...filesZh,
   ...gitZh,
   ...historyZh,
@@ -50,6 +53,7 @@ export const en: Record<keyof typeof zh, string> = {
   ...commandToolsEn,
   ...commonEn,
   ...desktopPetEn,
+  ...extensionsEn,
   ...filesEn,
   ...gitEn,
   ...historyEn,

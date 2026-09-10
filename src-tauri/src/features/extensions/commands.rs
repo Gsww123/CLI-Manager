@@ -76,6 +76,16 @@ pub async fn extensions_mcp_upsert(resource: McpResource) -> Result<McpResourceR
 }
 
 #[tauri::command]
+// 只改写一个 CLI 的启用开关，后端从完整记录更新，避免脱敏字段被前端回写覆盖。
+pub async fn extensions_mcp_set_enabled(
+    resource_id: String,
+    cli: ExtensionCli,
+    enabled: bool,
+) -> Result<McpResourceRedacted, String> {
+    repository::set_mcp_resource_enabled(&resource_id, cli, enabled).await
+}
+
+#[tauri::command]
 // 删除受管规范记录，不直接删除任何 CLI 原生配置或外部技能文件。
 pub async fn extensions_mcp_delete(resource_id: String) -> Result<(), String> {
     repository::delete_mcp_resource(&resource_id).await

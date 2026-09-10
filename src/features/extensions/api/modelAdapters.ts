@@ -51,6 +51,15 @@ export function upsertManagedMcpResource(resource: McpResource): Promise<McpReso
   return invoke<McpResourceRedacted>("extensions_mcp_upsert", { resource });
 }
 
+/** 只更新一个 CLI 的启用开关，避免脱敏资源回写时覆盖受保护字段。 */
+export function setManagedMcpResourceEnabled(
+  resourceId: string,
+  cli: ExtensionCli,
+  enabled: boolean,
+): Promise<McpResourceRedacted> {
+  return invoke<McpResourceRedacted>("extensions_mcp_set_enabled", { resourceId, cli, enabled });
+}
+
 /** 删除应用托管记录，不会删除 CLI 原生配置或外部技能文件。 */
 export function deleteManagedMcpResource(resourceId: string): Promise<void> {
   return invoke<void>("extensions_mcp_delete", { resourceId });

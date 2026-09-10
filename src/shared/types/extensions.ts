@@ -32,6 +32,7 @@ export interface McpResource {
   secretRefs: Record<string, string>;
   timeout: McpTimeout | null;
   perCliExtensions: Record<string, JsonObject>;
+  enabledByCli: Record<ExtensionCli, boolean>;
   source: McpResourceSource | null;
   [key: string]: unknown;
 }
@@ -51,6 +52,7 @@ export interface McpResourceRedacted {
   secretRefs: Record<string, string>;
   timeout: McpTimeout | null;
   perCliExtensions: Record<string, JsonObject>;
+  enabledByCli: Record<ExtensionCli, boolean>;
   source: McpResourceSource | null;
   extra: Record<string, unknown>;
   redactedFields: string[];

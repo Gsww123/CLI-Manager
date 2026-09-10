@@ -4,9 +4,9 @@ use serde_json::{Map, Value};
 use toml_edit::{value, DocumentMut, Item, Table};
 
 use super::model::{
-    cli_supports_transport, derive_resource_id, redact_resource, validate_resource, ExtensionCli,
-    McpConfigFormat, McpProjectionIssue, McpProjectionPreview, McpResource, McpResourceSource,
-    McpTimeout, McpTransport, ProjectionStatus,
+    cli_supports_transport, default_enabled_by_cli, derive_resource_id, redact_resource,
+    validate_resource, ExtensionCli, McpConfigFormat, McpProjectionIssue, McpProjectionPreview,
+    McpResource, McpResourceSource, McpTimeout, McpTransport, ProjectionStatus,
 };
 
 const CLAUDE_MCP_ROOT: &str = "mcpServers";
@@ -35,7 +35,12 @@ pub fn project_native_config(
     resources: &[McpResource],
 ) -> Result<McpProjectionPreview, String> {
     let _ = parse_native_config(cli, base_config)?;
-    let issues = projection_issues(cli, resources);
+    let selected_resources = resources
+        .iter()
+        .filter(|resource| resource.enabled_for(cli))
+        .cloned()
+        .collect::<Vec<_>>();
+    let issues = projection_issues(cli, &selected_resources);
     let format = format_for(cli);
     if !issues.is_empty() {
         return Ok(McpProjectionPreview {
@@ -43,7 +48,7 @@ pub fn project_native_config(
             format,
             status: ProjectionStatus::Unsupported,
             content: String::new(),
-            resources: resources.iter().map(redact_resource).collect(),
+            resources: selected_resources.iter().map(redact_resource).collect(),
             issues,
             omitted_fields: omitted_fields(),
             changed: false,
@@ -51,16 +56,16 @@ pub fn project_native_config(
     }
 
     let projected = match cli {
-        ExtensionCli::Claude => project_claude_json(base_config, resources)?,
-        ExtensionCli::Codex => project_toml(base_config, cli, resources, "http_headers")?,
-        ExtensionCli::Grok => project_toml(base_config, cli, resources, "headers")?,
+        ExtensionCli::Claude => project_claude_json(base_config, &selected_resources)?,
+        ExtensionCli::Codex => project_toml(base_config, cli, &selected_resources, "http_headers")?,
+        ExtensionCli::Grok => project_toml(base_config, cli, &selected_resources, "headers")?,
     };
     Ok(McpProjectionPreview {
         cli,
         format,
         status: ProjectionStatus::Ready,
         content: redact_projected_content(cli, &projected)?,
-        resources: resources.iter().map(redact_resource).collect(),
+        resources: selected_resources.iter().map(redact_resource).collect(),
         issues: Vec::new(),
         omitted_fields: omitted_fields(),
         changed: projected != base_config,
@@ -263,6 +268,7 @@ fn parse_json_resource(
         secret_refs: string_map(object.get("secretRefs"), "secretRefs")?,
         timeout: json_timeout(object.get("timeout"))?,
         per_cli_extensions: unknown_json_fields(cli, object, known_fields),
+        enabled_by_cli: default_enabled_by_cli(),
         source: Some(native_source(cli, &server_key)),
         extra: BTreeMap::new(),
     };
@@ -314,6 +320,7 @@ fn parse_toml_resource(
         secret_refs,
         timeout: toml_timeout(object)?,
         per_cli_extensions: unknown_toml_fields(cli, object, header_key)?,
+        enabled_by_cli: default_enabled_by_cli(),
         source: Some(native_source(cli, &server_key)),
         extra: BTreeMap::new(),
     };
@@ -1163,6 +1170,7 @@ mod tests {
             secret_refs: BTreeMap::from([("env:TOKEN".to_string(), "keychain/demo".to_string())]),
             timeout: None,
             per_cli_extensions: BTreeMap::new(),
+            enabled_by_cli: default_enabled_by_cli(),
             source: Some(McpResourceSource {
                 kind: "test".to_string(),
                 identity: "test:demo".to_string(),
@@ -1274,6 +1282,21 @@ mod tests {
             assert_eq!(parsed.resources[0].command, resource.command);
             assert_eq!(parsed.resources[0].args, resource.args);
         }
+    }
+
+    #[test]
+    // 全局开关只影响目标 CLI 投影；关闭后应删除该 CLI 的 MCP 条目而不改变其它目标。
+    fn projection_omits_resource_when_cli_switch_is_disabled() {
+        let mut resource = safe_stdio_resource();
+        resource.enabled_by_cli.insert("codex".to_string(), false);
+        let claude =
+            project_native_config(ExtensionCli::Claude, "{}", std::slice::from_ref(&resource))
+                .unwrap();
+        let codex = project_native_config(ExtensionCli::Codex, "", std::slice::from_ref(&resource))
+            .unwrap();
+        assert!(claude.content.contains("demo"));
+        assert!(!codex.content.contains("demo"));
+        assert!(codex.resources.is_empty());
     }
 
     #[test]

@@ -559,6 +559,7 @@ pub fn run() {
             commands::extensions::extensions_mcp_list,
             commands::extensions::extensions_mcp_get,
             commands::extensions::extensions_mcp_upsert,
+            commands::extensions::extensions_mcp_set_enabled,
             commands::extensions::extensions_mcp_delete,
             commands::extensions::extensions_import_preview,
             commands::extensions::extensions_import_apply,

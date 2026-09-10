@@ -100,6 +100,7 @@ export const LINUX_GRAPHICS_MODES = ["auto", "system", "disable-dmabuf", "disabl
 export type LinuxGraphicsMode = (typeof LINUX_GRAPHICS_MODES)[number];
 type LastSettingsTab =
   | "general"
+  | "extensions"
   | "desktop-pet"
   | "developer"
   | "sidebar"
@@ -753,6 +754,7 @@ const LEGACY_TERMINAL_THEME_MAP: Partial<Record<string, string>> = {
 
 const LAST_SETTINGS_TABS: readonly LastSettingsTab[] = [
   "general",
+  "extensions",
   "desktop-pet",
   "developer",
   "sidebar",

@@ -9,6 +9,7 @@ import {
   Keyboard,
   PanelLeft,
   PawPrint,
+  Puzzle,
   RadioTower,
   Server,
   RefreshCw,
@@ -42,12 +43,14 @@ import { SponsorsSettingsPage } from "../components/pages/SponsorsSettingsPage";
 import { DesktopPetSettingsPage } from "../components/pages/DesktopPetSettingsPage";
 import { CcConnectSettingsPage } from "../components/pages/CcConnectSettingsPage";
 import { SshHostsSettingsPage } from "../components/pages/SshHostsSettingsPage";
+import { GlobalExtensionsPage } from "../../extensions";
 import { useSettingsStore } from "../../../shared/preferences/settingsStore";
 import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
 import { normalizeFontFamilyStack } from "../../../shared/platform/systemFonts";
 
 export type SettingsTab =
   | "general"
+  | "extensions"
   | "desktop-pet"
   | "developer"
   | "sidebar"
@@ -76,6 +79,7 @@ interface SettingsTabConfig {
 
 const SETTINGS_TAB_ORDER: SettingsTab[] = [
   "general",
+  "extensions",
   "terminal-theme",
   "shortcuts",
   "templates",
@@ -101,6 +105,13 @@ const SETTINGS_TAB_CONFIG: Record<SettingsTab, SettingsTabConfig> = {
     title: "settings.tabs.general.title",
     description: "settings.tabs.general.description",
     icon: Settings2,
+  },
+  extensions: {
+    label: "settings.tabs.extensions.label",
+    title: "extensions.page.title",
+    description: "extensions.page.description",
+    icon: Puzzle,
+    searchPlaceholder: "extensions.page.search",
   },
   "desktop-pet": {
     label: "settings.tabs.desktopPet.label",
@@ -306,6 +317,7 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
   const activeConfig = SETTINGS_TAB_CONFIG[activeTab];
   const activeContent = (() => {
     if (activeTab === "general") return <GeneralSettingsPage />;
+    if (activeTab === "extensions") return <GlobalExtensionsPage searchValue={searchValue} />;
     if (activeTab === "desktop-pet") return <DesktopPetSettingsPage />;
     if (activeTab === "developer") return <DeveloperSettingsPage />;
     if (activeTab === "sidebar") return <SidebarSettingsPage />;

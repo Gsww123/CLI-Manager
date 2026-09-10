@@ -4,7 +4,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Connection, Row, SqliteConnection};
 
-use super::model::{redact_resource, validate_resource, McpResource, McpResourceRedacted};
+use super::model::{
+    redact_resource, validate_resource, ExtensionCli, McpResource, McpResourceRedacted,
+};
 
 const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -89,6 +91,54 @@ pub(crate) async fn upsert_mcp_resource(
     match result {
         Ok(()) => match commit(&mut connection).await {
             Ok(()) => Ok(redact_resource(&resource)),
+            Err(error) => {
+                rollback(&mut connection).await;
+                Err(error)
+            }
+        },
+        Err(error) => {
+            rollback(&mut connection).await;
+            Err(error)
+        }
+    }
+}
+
+// 只更新目标 CLI 的开关并保留数据库中的秘密字段，避免前端脱敏 DTO 覆盖完整 canonical 记录。
+pub(crate) async fn set_mcp_resource_enabled(
+    resource_id: &str,
+    cli: ExtensionCli,
+    enabled: bool,
+) -> Result<McpResourceRedacted, String> {
+    let mut connection = open_database().await?;
+    begin_immediate(&mut connection).await?;
+    let result = async {
+        let row = sqlx::query(
+            "SELECT resource_id, server_key, name, definition_json, revision, created_at, updated_at
+             FROM extension_mcp_resources
+             WHERE resource_id = ?1",
+        )
+        .bind(resource_id)
+        .fetch_optional(&mut connection)
+        .await
+        .map_err(|error| database_error("extensions_mcp_get_failed", error))?
+        .ok_or_else(|| "extensions_mcp_not_found".to_string())?;
+        let mut resource = decode_record(row)?.resource;
+        resource
+            .enabled_by_cli
+            .insert(cli.key().to_string(), enabled);
+        let issues = validate_resource(&resource);
+        if !issues.is_empty() {
+            return Err("extensions_storage_corrupt".to_string());
+        }
+        let definition_json = serde_json::to_string(&resource)
+            .map_err(|_| "extensions_definition_serialize_failed".to_string())?;
+        upsert_mcp_resource_in_transaction(&mut connection, &resource, &definition_json).await?;
+        Ok::<McpResourceRedacted, String>(redact_resource(&resource))
+    }
+    .await;
+    match result {
+        Ok(resource) => match commit(&mut connection).await {
+            Ok(()) => Ok(resource),
             Err(error) => {
                 rollback(&mut connection).await;
                 Err(error)
@@ -371,6 +421,7 @@ mod tests {
             secret_refs: BTreeMap::new(),
             timeout: None,
             per_cli_extensions: BTreeMap::new(),
+            enabled_by_cli: BTreeMap::new(),
             source: None,
             extra: BTreeMap::new(),
         }

@@ -6,6 +6,7 @@ export const zh = {
   "settings.tabs.general.label": "通用",
   "settings.tabs.general.title": "通用设置",
   "settings.tabs.general.description": "配置应用主题、配色、界面字体与全局偏好。",
+  "settings.tabs.extensions.label": "MCP 与 Skills",
   "settings.tabs.desktopPet.label": "桌面宠物",
   "settings.tabs.desktopPet.title": "CLI-Manager 桌面宠物",
   "settings.tabs.desktopPet.description": "显示会话状态、管理宠物外观，并从公开宠物中心下载或导入宠物包。",

@@ -5,6 +5,7 @@ export {
   listManagedMcpResources,
   parseExtensionNativeMcpConfig,
   previewExtensionMcpProjection,
+  setManagedMcpResourceEnabled,
   upsertManagedMcpResource,
   validateExtensionMcpResource,
 } from "./modelAdapters";
@@ -21,3 +22,15 @@ export {
   restoreManagedSkill,
   uninstallManagedSkill,
 } from "./importSync";
+
+export {
+  getActiveExtensionHome,
+  getExtensionHome,
+  listExtensionWslDistros,
+  previewExtensionHome,
+  resetExtensionHome,
+  selectExtensionHome,
+  type ExtensionEnvironmentKind,
+  type ExtensionHomeInput,
+  type ExtensionHomeState,
+} from "./globalManagement";
