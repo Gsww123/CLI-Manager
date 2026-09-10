@@ -2,6 +2,11 @@
 
 ## [V1.4.0] - 2026-09-08
 
+### MCP/Skills 统一模型与 CLI 适配基础
+
+- 新增版本化 MCP canonical 模型与 SQLite 受管资源表，统一 resourceId、serverKey、传输、环境变量、请求头、secretRef、超时及来源字段，并以 revision 保护并发保存。
+- 新增 Claude JSON、Codex/Grok TOML 的解析与字段级投影预览：保留无关配置和未知厂商字段，隔离 perCliExtensions，明确报告传输/超时等不支持项，并在 IPC 返回前递归脱敏。
+
 ### 大型仓库 Git 变更面板性能（#257）
 
 - 修复数万文件变更时打开 Git 面板卡顿的问题：变更树按视口虚拟渲染，大列表在 Worker 中建树，失败时分批构造；完整保留文件列表、目录批量操作、分组、右键及拖拽能力。

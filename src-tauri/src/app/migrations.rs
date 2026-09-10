@@ -736,6 +736,24 @@ pub(crate) const MIGRATION_ADD_SSH_ATTACHMENT_ROOT_DESCRIPTION: &str =
     "add_attachment_root_to_ssh_hosts";
 pub(crate) const MIGRATION_ADD_SSH_ATTACHMENT_ROOT_SQL: &str =
     "ALTER TABLE ssh_hosts ADD COLUMN attachment_root TEXT NOT NULL DEFAULT '';";
+pub(crate) const MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION: i64 = 38;
+pub(crate) const MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_DESCRIPTION: &str =
+    "create_extension_mcp_resources";
+pub(crate) const MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_SQL: &str = "
+                CREATE TABLE IF NOT EXISTS extension_mcp_resources (
+                    resource_id     TEXT PRIMARY KEY NOT NULL,
+                    server_key      TEXT NOT NULL UNIQUE,
+                    name            TEXT NOT NULL,
+                    definition_json TEXT NOT NULL,
+                    source_kind     TEXT NOT NULL DEFAULT '',
+                    source_identity TEXT NOT NULL DEFAULT '',
+                    revision        INTEGER NOT NULL DEFAULT 1,
+                    created_at      INTEGER NOT NULL,
+                    updated_at      INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_extension_mcp_resources_updated_at
+                    ON extension_mcp_resources(updated_at DESC, resource_id ASC);
+              ";
 // 按既定版本顺序返回向上迁移注册表，由 SQL 插件在初始化时应用；此函数本身不执行 SQL。
 pub(crate) fn migrations() -> Vec<Migration> {
     vec![
@@ -1063,6 +1081,12 @@ pub(crate) fn migrations() -> Vec<Migration> {
             version: MIGRATION_ADD_SSH_ATTACHMENT_ROOT_VERSION,
             description: MIGRATION_ADD_SSH_ATTACHMENT_ROOT_DESCRIPTION,
             sql: MIGRATION_ADD_SSH_ATTACHMENT_ROOT_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+            description: MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_DESCRIPTION,
+            sql: MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_SQL,
             kind: MigrationKind::Up,
         },
     ]

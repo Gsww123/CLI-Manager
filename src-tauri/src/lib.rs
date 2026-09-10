@@ -29,6 +29,7 @@ pub(crate) use app::migrations::{
 pub(crate) use app::migrations::{
     MIGRATION_ADD_NODE_APPEARANCE_VERSION, MIGRATION_ADD_SSH_CONFIG_FILE_SQL,
     MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION, MIGRATION_CREATE_SSH_AGENT_INTEGRATIONS_SQL,
+    MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
     MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
 };
 
@@ -36,6 +37,8 @@ pub(crate) use app::migrations::{
 pub mod app_paths;
 #[path = "features/providers/ccswitch_db.rs"]
 mod ccswitch_db;
+#[path = "features/extensions/mod.rs"]
+pub(crate) mod extensions;
 #[path = "features/hooks/claude.rs"]
 mod claude_hook;
 #[path = "features/codex-proxy/mod.rs"]
@@ -547,6 +550,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::agent_capabilities::agent_capabilities_inspect,
             commands::agent_capabilities::agent_capabilities_probe,
+            commands::extensions::extensions_mcp_capabilities,
+            commands::extensions::extensions_mcp_validate,
+            commands::extensions::extensions_mcp_parse_native,
+            commands::extensions::extensions_mcp_preview,
+            commands::extensions::extensions_mcp_list,
+            commands::extensions::extensions_mcp_get,
+            commands::extensions::extensions_mcp_upsert,
+            commands::extensions::extensions_mcp_delete,
             commands::opencode_hook::opencode_hook_status,
             commands::opencode_hook::opencode_hook_install,
             commands::opencode_hook::opencode_hook_uninstall,
@@ -1246,6 +1257,7 @@ mod provider_migration_tests {
         MIGRATION_ADD_PROJECT_PATH_MODE_VERSION, MIGRATION_ADD_SSH_ATTACHMENT_ROOT_VERSION,
         MIGRATION_ADD_USAGE_ERROR_DETAIL_VERSION,
         MIGRATION_BACKFILL_REQUEST_LOG_PROJECT_PATH_VERSION,
+        MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
         MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION,
         MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
     };
@@ -1364,9 +1376,22 @@ mod provider_migration_tests {
         assert!(node_appearance_migration.version < group_bound_path_migration.version);
         assert!(group_bound_path_migration.version < project_path_mode_migration.version);
         assert!(project_path_mode_migration.version < ssh_attachment_root_migration.version);
+        let extension_mcp_migration = registry
+            .iter()
+            .find(|migration| {
+                migration.version == MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION
+            })
+            .expect("extension MCP migration must be registered");
+        assert_eq!(extension_mcp_migration.version, 38);
+        assert!(extension_mcp_migration
+            .sql
+            .contains("CREATE TABLE IF NOT EXISTS extension_mcp_resources"));
+        assert!(extension_mcp_migration
+            .sql
+            .contains("idx_extension_mcp_resources_updated_at"));
         assert!(registry
             .iter()
-            .all(|migration| migration.version <= ssh_attachment_root_migration.version));
+            .all(|migration| migration.version <= extension_mcp_migration.version));
         assert!(registry.iter().any(|migration| migration.version == 29
             && migration.description == "optimize_unified_usage_record_queries"));
     }
