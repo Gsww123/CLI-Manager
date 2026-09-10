@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 117
-- **Last Active**: 2026-09-10
+- **Total Sessions**: 118
+- **Last Active**: 2026-09-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1660 | Active |
+| `journal-2.md` | ~1684 | Active |
 | `journal-1.md` | ~2014 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 118 | 2026-09-11 | 完成 V1.4.0 MCP 与 Skills 管理主线 | `58fe4b05`, `d9e04ace`, `e606b4f3`, `1b421ec4` | `mcp-skill-manager` |
 | 117 | 2026-09-10 | 修复 Pi CLI 全屏 TUI 底部输入框 | `09341b65` | `master` |
 | 116 | 2026-09-10 | 修复大型仓库 Git 面板卡顿 #257 | `ae116d6b` | `master` |
 | 115 | 2026-09-09 | 完成项目置顶快捷入口 | `0b2ccabe` | `master` |

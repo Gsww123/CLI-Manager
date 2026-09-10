@@ -1658,3 +1658,27 @@ V1.4.0：虚拟化变更树、Worker 建树及刷新合并；64887 文件浏览�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 118: 完成 V1.4.0 MCP 与 Skills 管理主线
+
+**Date**: 2026-09-11
+**Task**: 完成 V1.4.0 MCP 与 Skills 管理主线
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+按模型适配、导入同步、全局管理、项目 Worktree 策略顺序完成 MCP/Skills 主线；通过 Rust 全库单测、扩展单测、TypeScript、架构 strict 与生产构建。WSL、macOS、SSH 端到端及 GUI 手动验证保留发布门禁，Grok 项目策略保持 global-only。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `58fe4b05` | (see git log) |
+| `d9e04ace` | (see git log) |
+| `e606b4f3` | (see git log) |
+| `1b421ec4` | (see git log) |
+
+### Status
+
+[OK] **Completed**
