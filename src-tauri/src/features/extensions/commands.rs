@@ -8,12 +8,16 @@ use crate::extensions::model::{
     capability_matrix, redact_resource, validation_report, ExtensionCli, McpNativeConfigPreview,
     McpProjectionPreview, McpResource, McpResourceRedacted, McpValidationReport,
 };
+use crate::extensions::project_policy::{
+    ProjectExtensionLaunchPlan, ProjectExtensionLaunchRequest, ProjectExtensionPolicyGetRequest,
+    ProjectExtensionPolicyResponse, ProjectExtensionPolicySaveRequest,
+};
 use crate::extensions::repository;
 use crate::extensions::skill_deployment::{
     SkillDeploymentRequest, SkillDeploymentResult, SkillInstallationView, SkillPackageView,
     SkillRestoreResult, SkillUninstallResult,
 };
-use crate::extensions::{github, import, skill_deployment};
+use crate::extensions::{github, import, project_policy, skill_deployment};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,4 +167,42 @@ pub async fn extensions_github_skill_install(
 // 标记一个 GitHub 预览/安装操作取消；已发布的包保留，后续可安全重试。
 pub fn extensions_github_skill_cancel(operation_id: String) -> Result<(), String> {
     github::cancel(&operation_id)
+}
+
+#[tauri::command]
+// 读取项目/Worktree的MCP与Skill独立策略；返回脱敏资源、实际全局状态和当前有效集合。
+pub async fn extensions_project_policy_get(
+    request: ProjectExtensionPolicyGetRequest,
+) -> Result<ProjectExtensionPolicyResponse, String> {
+    project_policy::get_policy(request).await
+}
+
+#[tauri::command]
+// 以单个事务保存六个策略；inherit 清除覆盖行，取消操作不会调用此命令。
+pub async fn extensions_project_policy_save(
+    request: ProjectExtensionPolicySaveRequest,
+) -> Result<(), String> {
+    project_policy::save_policy(request).await
+}
+
+#[tauri::command]
+// 为新建或新进程恢复生成不可变启动快照；不修改 CLI 原生全局/项目配置。
+pub async fn extensions_project_policy_prepare(
+    request: ProjectExtensionLaunchRequest,
+) -> Result<ProjectExtensionLaunchPlan, String> {
+    project_policy::prepare_launch(request).await
+}
+
+#[tauri::command]
+// 关闭会话后只释放带合法清单的受管项目快照。
+pub fn extensions_project_policy_release_snapshot(snapshot_id: String) -> Result<(), String> {
+    project_policy::release_snapshot(snapshot_id)
+}
+
+#[tauri::command]
+// 启动/恢复阶段回收不再被持久化会话引用的项目快照。
+pub fn extensions_project_policy_gc_snapshots(
+    active_snapshot_ids: Vec<String>,
+) -> Result<(), String> {
+    project_policy::garbage_collect_snapshots(active_snapshot_ids)
 }

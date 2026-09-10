@@ -30,6 +30,7 @@ pub(crate) use app::migrations::{
     MIGRATION_ADD_NODE_APPEARANCE_VERSION, MIGRATION_ADD_SSH_CONFIG_FILE_SQL,
     MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION, MIGRATION_CREATE_SSH_AGENT_INTEGRATIONS_SQL,
     MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+    MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION,
     MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION, MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
     MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
     MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
@@ -571,6 +572,11 @@ pub fn run() {
             commands::extensions::extensions_github_skill_preview,
             commands::extensions::extensions_github_skill_install,
             commands::extensions::extensions_github_skill_cancel,
+            commands::extensions::extensions_project_policy_get,
+            commands::extensions::extensions_project_policy_save,
+            commands::extensions::extensions_project_policy_prepare,
+            commands::extensions::extensions_project_policy_release_snapshot,
+            commands::extensions::extensions_project_policy_gc_snapshots,
             commands::opencode_hook::opencode_hook_status,
             commands::opencode_hook::opencode_hook_install,
             commands::opencode_hook::opencode_hook_uninstall,
@@ -1271,6 +1277,7 @@ mod provider_migration_tests {
         MIGRATION_ADD_USAGE_ERROR_DETAIL_VERSION,
         MIGRATION_BACKFILL_REQUEST_LOG_PROJECT_PATH_VERSION,
         MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+        MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION,
         MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION,
         MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
         MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
@@ -1421,11 +1428,39 @@ mod provider_migration_tests {
         assert!(extension_skill_migration
             .sql
             .contains("CREATE TABLE IF NOT EXISTS extension_skill_installations"));
+        let scope_policy_migration = registry
+            .iter()
+            .find(|migration| migration.version == MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION)
+            .expect("extension scope policy migration must be registered");
+        assert_eq!(scope_policy_migration.version, 40);
+        assert!(extension_skill_migration.version < scope_policy_migration.version);
         assert!(registry
             .iter()
-            .all(|migration| migration.version <= extension_skill_migration.version));
+            .all(|migration| migration.version <= scope_policy_migration.version));
         assert!(registry.iter().any(|migration| migration.version == 29
             && migration.description == "optimize_unified_usage_record_queries"));
+    }
+}
+
+#[cfg(test)]
+mod extension_scope_policy_migration_tests {
+    use super::{migrations, MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION};
+
+    #[test]
+    // 验证项目/Worktree 扩展策略迁移登记在 Skill 迁移之后且包含受约束的策略表。
+    fn scope_policy_migration_is_registered_after_extension_baseline() {
+        let registry = migrations();
+        let migration = registry
+            .iter()
+            .find(|migration| migration.version == MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION)
+            .expect("extension scope policy migration must be registered");
+        assert_eq!(migration.version, 40);
+        assert_eq!(migration.description, "create_extension_scope_policies");
+        assert!(migration
+            .sql
+            .contains("PRIMARY KEY (scope_kind, scope_id, cli, extension_kind)"));
+        assert!(migration.sql.contains("CHECK(mode IN ('inherit', 'custom'))"));
+        assert!(migration.sql.contains("REFERENCES projects(id) ON DELETE CASCADE"));
     }
 }
 

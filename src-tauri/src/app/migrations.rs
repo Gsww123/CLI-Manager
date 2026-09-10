@@ -803,6 +803,29 @@ pub(crate) const MIGRATION_CREATE_EXTENSION_SKILLS_SQL: &str = "
                 CREATE INDEX IF NOT EXISTS idx_extension_skill_installations_target
                     ON extension_skill_installations(environment_kind, environment_id, cli, target_path);
               ";
+
+pub(crate) const MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION: i64 = 40;
+pub(crate) const MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_DESCRIPTION: &str =
+    "create_extension_scope_policies";
+pub(crate) const MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_SQL: &str = "
+                CREATE TABLE IF NOT EXISTS extension_scope_policies (
+                    scope_kind         TEXT NOT NULL CHECK(scope_kind IN ('project', 'worktree')),
+                    scope_id           TEXT NOT NULL,
+                    project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    cli                TEXT NOT NULL CHECK(cli IN ('claude', 'codex', 'grok')),
+                    extension_kind     TEXT NOT NULL CHECK(extension_kind IN ('mcp', 'skill')),
+                    mode               TEXT NOT NULL CHECK(mode IN ('inherit', 'custom')),
+                    selected_ids_json  TEXT NOT NULL DEFAULT '[]',
+                    revision           INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+                    created_at         INTEGER NOT NULL,
+                    updated_at         INTEGER NOT NULL,
+                    PRIMARY KEY (scope_kind, scope_id, cli, extension_kind)
+                );
+                CREATE INDEX IF NOT EXISTS idx_extension_scope_policies_project
+                    ON extension_scope_policies(project_id, scope_kind, scope_id);
+                CREATE INDEX IF NOT EXISTS idx_extension_scope_policies_revision
+                    ON extension_scope_policies(updated_at DESC, revision DESC);
+              ";
 // 按既定版本顺序返回向上迁移注册表，由 SQL 插件在初始化时应用；此函数本身不执行 SQL。
 pub(crate) fn migrations() -> Vec<Migration> {
     vec![
@@ -1142,6 +1165,12 @@ pub(crate) fn migrations() -> Vec<Migration> {
             version: MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
             description: MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION,
             sql: MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION,
+            description: MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_DESCRIPTION,
+            sql: MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_SQL,
             kind: MigrationKind::Up,
         },
     ]

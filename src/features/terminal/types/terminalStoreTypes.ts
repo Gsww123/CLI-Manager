@@ -271,6 +271,7 @@ export interface DetachedPtyLaunchOptions {
   shell?: string | null;
   providerSnapshot?: NativeProviderLaunchSnapshot | null;
   providerId?: string | null;
+  extensionSnapshotId?: string | null;
 }
 
 export interface DetachedPtyLaunchResult {
@@ -278,6 +279,9 @@ export interface DetachedPtyLaunchResult {
   shell: string | null;
   startupCmd?: string;
   providerSnapshot?: NativeProviderLaunchSnapshot;
+  extensionSnapshotId?: string;
+  extensionPolicyRevision?: number;
+  extensionStatus?: "applied" | "globalOnly" | "error";
 }
 
 export type ProviderLaunchSnapshotResponse = NativeProviderLaunchSnapshot;
@@ -306,6 +310,10 @@ export interface ResolvedPtyLaunch {
   sshHostId?: string;
   remotePath?: string;
   providerSnapshot: NativeProviderLaunchSnapshot | null;
+  extensionSnapshotId: string | null;
+  extensionPolicyRevision?: number;
+  extensionStatus?: "applied" | "globalOnly" | "error";
+  extensionWarnings?: string[];
   invokeArgs: {
     cwd: string | null;
     envVars: Record<string, string> | null;

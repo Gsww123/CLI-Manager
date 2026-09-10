@@ -330,9 +330,22 @@ pub(crate) async fn list_package_views() -> Result<Vec<SkillPackageView>, String
 
 // 解析安装列表并检测本机目标；外部修改只更新标记，不删除用户文件。
 pub(crate) async fn list_installation_views() -> Result<Vec<SkillInstallationView>, String> {
+    list_installation_views_for_environment(None, None).await
+}
+
+// 按目标环境先筛选再探测，避免某个不可用的 WSL 发行版阻塞本机项目策略读取。
+pub(crate) async fn list_installation_views_for_environment(
+    environment_kind: Option<&str>,
+    environment_id: Option<&str>,
+) -> Result<Vec<SkillInstallationView>, String> {
     let records = skill_repository::list_installations().await?;
     let mut views = Vec::with_capacity(records.len());
     for record in records {
+        if environment_kind.is_some_and(|kind| record.environment_kind != kind)
+            || environment_id.is_some_and(|id| record.environment_id != id)
+        {
+            continue;
+        }
         let status = inspect_installation(&record).await?;
         if status == "externalModified" && !record.external_modified {
             let _ = skill_repository::mark_external_modified(&record.installation_id, true).await;

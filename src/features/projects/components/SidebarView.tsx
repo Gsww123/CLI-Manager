@@ -1,6 +1,8 @@
+import { useState } from "react";
 import type { useSidebarController } from "../hooks/useSidebarController";
 import { sanitizeWorktreeTaskName, validateWorktreeTaskName } from "../api/worktreeStore";
 import { ConfigModal } from "./ConfigModal";
+import { ProjectExtensionsDialog } from "../../extensions";
 import { ConfirmDialog } from "../../../shared/ui/ConfirmDialog";
 import { ProviderSwitchModal } from "../../providers/api/ProviderSwitchModal";
 import { WorktreeFinishDialog } from "../api/WorktreeFinishDialog";
@@ -22,6 +24,7 @@ import { SidebarFooter } from "./SidebarFooter";
 import { FileExplorerSidebar } from "../../files/api/FileExplorerSidebar";
 import { ArrowLeftRight, Check, CircleStop, Copy, FileCode, FolderOpen, FolderPlus, ListClockIcon, Palette, Pencil, Pin, Play, Plus, Settings, SquareSplitHorizontal, SquareSplitVertical, Terminal, TerminalSquare, Trash2, X } from "../../../shared/ui/icons";
 import { buildProjectSplitOptions } from "../lib/sidebarModel";
+import type { Project, WorktreeRecord } from "../../../shared/types/index";
 
 export function SidebarView({
   sidebarElementRef,
@@ -149,6 +152,11 @@ export function SidebarView({
   setConfirmAction,
   startResize,
 }: ReturnType<typeof useSidebarController>) {
+  const [extensionTarget, setExtensionTarget] = useState<{
+    project: Project;
+    worktree?: WorktreeRecord;
+  } | null>(null);
+
   return (
     <aside
       ref={sidebarElementRef}
@@ -461,6 +469,18 @@ export function SidebarView({
                   className="context-menu-item"
                   hidden={showProjectBatchContextMenu}
                   role="menuitem"
+                  onClick={() => {
+                    setExtensionTarget({ project: contextMenu.project });
+                    setContextMenu(null);
+                  }}
+                >
+                  <Settings size={14} strokeWidth={1.5} />
+                  {t("extensions.page.title")}
+                </button>
+                <button
+                  className="context-menu-item"
+                  hidden={showProjectBatchContextMenu}
+                  role="menuitem"
                   aria-expanded={appearanceMenuOpen}
                   onClick={() => setAppearanceMenuOpen((prev) => !prev)}
                 >
@@ -602,6 +622,17 @@ export function SidebarView({
                     {t("sidebar.menu.switchProvider")}
                   </button>
                 )}
+                <button
+                  className="context-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setExtensionTarget({ project: contextMenu.project, worktree: contextMenu.worktree });
+                    setContextMenu(null);
+                  }}
+                >
+                  <Settings size={14} strokeWidth={1.5} />
+                  {t("extensions.page.title")}
+                </button>
                 <button
                   className="context-menu-item"
                   role="menuitem"
@@ -1008,9 +1039,20 @@ export function SidebarView({
             setEditingProject(null);
             onOpenSettings("ssh-hosts");
           }}
+          onOpenExtensions={() => {
+            const target = editingProject;
+            setEditingProject(null);
+            if (target) setExtensionTarget({ project: target });
+          }}
           onClose={() => setEditingProject(null)}
         />
       )}
+      <ProjectExtensionsDialog
+        open={!!extensionTarget}
+        project={extensionTarget?.project ?? null}
+        worktree={extensionTarget?.worktree}
+        onClose={() => setExtensionTarget(null)}
+      />
       {editingGroup && (
         <GroupEditDialog
           group={editingGroup}

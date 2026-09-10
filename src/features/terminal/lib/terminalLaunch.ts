@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Project, NativeProviderLaunchSnapshot, TerminalSession } from "../../../shared/types/index";
+import type { ExtensionCli, ProjectExtensionLaunchPlan } from "../../../shared/types/extensions";
 import { createAgentTerminalMetadata, resolveAgentTerminalMetadata } from "../../agents/api/agentTerminal";
 import { logError, logWarn } from "../../../shared/platform/logger";
 import {
   appendResumeCliArgs, isDirectCodexStartupCommand, normalizeDirectCodexStartupCommand,
-  resolveProjectStartupCommand, withClaudeSettingsPath, withCodexConfigOverrides, withCodexProfile,
+  resolveProjectStartupCommand, withClaudeMcpConfigPath, withClaudeSettingsPath,
+  withCodexConfigOverrides, withCodexProfile,
   withCodexLightTuiTheme, withGrokModelOverride,
 } from "../../projects/api/projectStartupCommand";
 import { getTerminalTheme } from "../../../shared/lib/terminalThemes";
@@ -31,6 +33,11 @@ import {
   type DetachedPtyLaunchResult, type ProviderLaunchSnapshotResponse, type ResolvedPtyLaunch,
 } from "../types/terminalStoreTypes";
 import { SHELL_RUNTIME_MONITORING_ENV } from "./terminalStatus";
+import {
+  garbageCollectProjectExtensionSnapshots as garbageCollectProjectExtensionSnapshotsApi,
+  prepareProjectExtensionLaunch,
+  releaseProjectExtensionSnapshot as releaseProjectExtensionSnapshotApi,
+} from "../../extensions/api/projectPolicy";
 
 export function supportsShellRuntimeInjection(shell?: string | null): boolean {
   const normalized = normalizeShellKey(shell);
@@ -330,7 +337,65 @@ export function releaseProviderSnapshot(snapshot: NativeProviderLaunchSnapshot |
   });
 }
 
+export async function garbageCollectProjectExtensionSnapshots(sessions: TerminalSession[]): Promise<void> {
+  try {
+    await garbageCollectProjectExtensionSnapshotsApi(
+      sessions
+        .map((session) => session.extensionSnapshotId)
+        .filter((snapshotId): snapshotId is string => Boolean(snapshotId?.trim())),
+    );
+  } catch (err) {
+    logWarn("project extension snapshot garbage collection failed", { err });
+  }
+}
+
+export function releaseProjectExtensionSnapshot(snapshotId: string | null | undefined): void {
+  const normalizedId = snapshotId?.trim();
+  if (!normalizedId) return;
+  void releaseProjectExtensionSnapshotApi(normalizedId).catch((err) => {
+    logWarn("project extension snapshot release failed", { snapshotId: normalizedId, err });
+  });
+}
+
+function inferWslDistro(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return null;
+  const uncMatch = /^\\\\(?:wsl\.localhost|wsl\$)\\([^\\/]+)(?:[\\/]|$)/i.exec(normalized);
+  return uncMatch?.[1]?.trim() || null;
+}
+
+function resolveExtensionEnvironment(
+  project: Project | undefined,
+  cwd: string | null | undefined,
+  shell: string | null | undefined,
+  os: OsPlatform,
+): { environmentKind: "local" | "wsl"; environmentId: string } | null {
+  if (!project || project.environment_type === "ssh") return null;
+  const isWsl = project.environment_type === "wsl"
+    || (os === "windows" && normalizeShellKey(shell) === "wsl");
+  if (!isWsl) return { environmentKind: "local", environmentId: "host" };
+  const distro = inferWslDistro(cwd) ?? inferWslDistro(project.path);
+  return distro ? { environmentKind: "wsl", environmentId: distro } : null;
+}
+
+function extensionCliForProject(project: Project | undefined): ExtensionCli | null {
+  const appType = project ? getProviderSwitchAppType(project) : null;
+  if (appType === "claude" || appType === "codex") return appType;
+  if (appType === "grokbuild") return "grok";
+  return null;
+}
+
+function extensionLaunchStatus(
+  mcpStatus: ProjectExtensionLaunchPlan["mcpStatus"],
+  skillStatus: ProjectExtensionLaunchPlan["skillStatus"],
+): "applied" | "globalOnly" | "error" {
+  if (mcpStatus === "error" || skillStatus === "error") return "error";
+  if (mcpStatus === "globalOnly" || skillStatus === "globalOnly") return "globalOnly";
+  return "applied";
+}
+
 export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: OsPlatform): Promise<ResolvedPtyLaunch> {
+  releaseProjectExtensionSnapshot(options.extensionSnapshotId);
   const project = options.projectId
     ? useProjectStore.getState().projects.find((item) => item.id === options.projectId)
     : undefined;
@@ -409,6 +474,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       sshHostId: host.id,
       remotePath,
       providerSnapshot: null,
+      extensionSnapshotId: null,
       invokeArgs: {
         cwd: null,
         envVars: null,
@@ -452,6 +518,37 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
   const providerConfigs = buildNativeProviderLaunchConfigs(
     providerSnapshot,
   );
+  const extensionEnvironment = resolveExtensionEnvironment(project, options.cwd, resolvedShell, os);
+  const extensionCli = extensionCliForProject(project);
+  let extensionPlan: ProjectExtensionLaunchPlan | null = null;
+  let extensionPrepareWarning: string | undefined;
+  if (project && extensionCli && extensionEnvironment) {
+    try {
+      extensionPlan = await prepareProjectExtensionLaunch({
+        projectId: project.id,
+        worktreeId: options.worktreeId ?? null,
+        cli: extensionCli,
+        environmentKind: extensionEnvironment.environmentKind,
+        environmentId: extensionEnvironment.environmentId,
+        providerSnapshotId: providerSnapshot?.snapshotId ?? null,
+        providerId: providerSnapshot?.providerId ?? options.providerId ?? null,
+      });
+    } catch (err) {
+      extensionPrepareWarning = "extensions_project_launch_prepare_failed";
+      logWarn("project extension launch preparation failed; continuing with global launch", {
+        projectId: project.id,
+        worktreeId: options.worktreeId ?? null,
+        cli: extensionCli,
+        err,
+      });
+    }
+  } else if (project && extensionCli && project.environment_type !== "ssh") {
+    extensionPrepareWarning = "extensions_project_environment_unavailable";
+    logWarn("project extension launch skipped because the target environment is not identifiable", {
+      projectId: project.id,
+      cli: extensionCli,
+    });
+  }
   let providerStartupCmd = resolvedStartupCmd;
   if (providerSnapshot?.appType === "codex") {
     providerStartupCmd = providerSnapshot.codexProfileName
@@ -459,6 +556,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       : withCodexConfigOverrides(resolvedStartupCmd, providerSnapshot.configOverrides);
     if (!providerStartupCmd) {
       releaseProviderSnapshot(providerSnapshot);
+      releaseProjectExtensionSnapshot(extensionPlan?.snapshotId);
       throw new Error("provider_codex_command_unsupported");
     }
   } else if (providerSnapshot?.appType === "grokbuild") {
@@ -468,6 +566,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     );
     if (!providerStartupCmd) {
       releaseProviderSnapshot(providerSnapshot);
+      releaseProjectExtensionSnapshot(extensionPlan?.snapshotId);
       throw new Error("provider_grok_command_unsupported");
     }
   }
@@ -475,12 +574,76 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     providerStartupCmd,
     normalizeShellKey(resolvedShell) ?? null,
   );
-  if (providerSnapshot?.appType === "claude" && CLAUDE_COMMAND_PATTERN.test(startupCmd ?? "")) {
+  let extensionSnapshotId = extensionPlan?.snapshotId ?? null;
+  let extensionMcpStatus = extensionPlan?.mcpStatus ?? "applied";
+  let extensionSkillStatus = extensionPlan?.skillStatus ?? "applied";
+  let extensionSnapshotUsed = false;
+  const extensionWarnings = [
+    ...(extensionPlan?.warnings ?? []),
+    ...(extensionPrepareWarning ? [extensionPrepareWarning] : []),
+  ];
+  if ((providerSnapshot?.appType === "claude" || extensionCli === "claude") && CLAUDE_COMMAND_PATTERN.test(startupCmd ?? "")) {
     startupCmd = withClaudeSettingsPath(
       startupCmd,
-      providerSnapshot.claudeSettingsPath ?? undefined,
+      extensionPlan?.claudeSettingsPath ?? providerSnapshot?.claudeSettingsPath ?? undefined,
       normalizeShellKey(resolvedShell) ?? null,
     );
+  }
+  if (extensionPlan && extensionCli === "claude" && CLAUDE_COMMAND_PATTERN.test(startupCmd ?? "")) {
+    if (extensionPlan.mcpConfigPath) {
+      const nextCommand = withClaudeMcpConfigPath(
+        startupCmd,
+        extensionPlan.mcpConfigPath,
+        normalizeShellKey(resolvedShell) ?? null,
+      );
+      if (nextCommand) {
+        startupCmd = nextCommand;
+        extensionSnapshotUsed = true;
+      } else {
+        extensionMcpStatus = "error";
+        extensionWarnings.push("extensions_project_claude_mcp_command_unsupported");
+      }
+    }
+    if (extensionPlan.claudeSettingsPath && /(^|\s)--settings(\s|$)/.test(startupCmd ?? "")) {
+      const settingsWasProjectPath = startupCmd?.includes(extensionPlan.claudeSettingsPath) ?? false;
+      if (!settingsWasProjectPath) {
+        extensionSkillStatus = "error";
+        extensionWarnings.push("extensions_project_claude_settings_command_unsupported");
+      } else {
+        extensionSnapshotUsed = true;
+      }
+    }
+  } else if (extensionPlan && extensionCli === "claude") {
+    if (extensionPlan.mcpConfigPath) {
+      extensionMcpStatus = "error";
+      extensionWarnings.push("extensions_project_claude_mcp_command_unsupported");
+    }
+    if (extensionPlan.claudeSettingsPath) {
+      extensionSkillStatus = "error";
+      extensionWarnings.push("extensions_project_claude_settings_command_unsupported");
+    }
+  }
+  if (extensionPlan && extensionCli === "codex" && extensionPlan.codexConfigOverrides.length > 0) {
+    try {
+      const nextCommand = withCodexConfigOverrides(startupCmd, extensionPlan.codexConfigOverrides);
+      if (!nextCommand) {
+        extensionMcpStatus = extensionPlan.mcpStatus === "error" ? "error" : extensionMcpStatus;
+        extensionSkillStatus = extensionPlan.skillStatus === "error" ? "error" : extensionSkillStatus;
+        extensionWarnings.push("extensions_project_codex_command_unsupported");
+      } else {
+        startupCmd = nextCommand;
+        extensionSnapshotUsed = true;
+      }
+    } catch (err) {
+      extensionMcpStatus = "error";
+      extensionSkillStatus = "error";
+      extensionWarnings.push("extensions_project_codex_override_invalid");
+      logWarn("project extension Codex overrides were rejected", { projectId: project?.id, err });
+    }
+  }
+  if (extensionSnapshotId && !extensionSnapshotUsed) {
+    releaseProjectExtensionSnapshot(extensionSnapshotId);
+    extensionSnapshotId = null;
   }
   return {
     shell: resolvedShell,
@@ -488,6 +651,15 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     startupCmd,
     startupHandledByLaunch: false,
     providerSnapshot,
+    extensionSnapshotId,
+    extensionPolicyRevision: extensionPlan?.policyRevision,
+    extensionStatus: extensionPlan || extensionPrepareWarning
+      ? extensionLaunchStatus(
+        extensionPrepareWarning ? "error" : extensionMcpStatus,
+        extensionPrepareWarning ? "error" : extensionSkillStatus,
+      )
+      : undefined,
+    extensionWarnings,
     invokeArgs: {
       cwd: options.cwd ?? null,
       envVars: buildPtyEnvVars(options.envVars ?? null, resolvedShell),
@@ -505,12 +677,22 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
 export async function createDetachedPtyProcess(options: DetachedPtyLaunchOptions): Promise<DetachedPtyLaunchResult> {
   const os = await getOsPlatform();
   const launch = await resolvePtyLaunch(options, os);
-  const sessionId = await terminalProcessManager.create(launch.invokeArgs);
+  let sessionId: string;
+  try {
+    sessionId = await terminalProcessManager.create(launch.invokeArgs);
+  } catch (error) {
+    releaseProviderSnapshot(launch.providerSnapshot);
+    releaseProjectExtensionSnapshot(launch.extensionSnapshotId);
+    throw error;
+  }
 
   return {
     sessionId,
     shell: launch.shell,
     startupCmd: launch.startupCmd,
     providerSnapshot: launch.providerSnapshot ?? undefined,
+    extensionSnapshotId: launch.extensionSnapshotId ?? undefined,
+    extensionPolicyRevision: launch.extensionPolicyRevision,
+    extensionStatus: launch.extensionStatus,
   };
 }

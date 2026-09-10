@@ -34,3 +34,11 @@ export {
   type ExtensionHomeInput,
   type ExtensionHomeState,
 } from "./globalManagement";
+
+export {
+  garbageCollectProjectExtensionSnapshots,
+  getProjectExtensionPolicy,
+  prepareProjectExtensionLaunch,
+  releaseProjectExtensionSnapshot,
+  saveProjectExtensionPolicy,
+} from "./projectPolicy";

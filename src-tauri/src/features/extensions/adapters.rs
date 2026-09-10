@@ -72,6 +72,35 @@ pub fn project_native_config(
     })
 }
 
+// 为 CLI-Manager 启动快照生成受管 MCP 配置；与脱敏预览共用同一校验和投影路径，
+// 但完整正文只写入应用数据目录，不跨 IPC 返回，避免秘密字段进入 WebView。
+pub(crate) fn project_native_config_for_launch(
+    cli: ExtensionCli,
+    resources: &[McpResource],
+) -> Result<String, String> {
+    let selected_resources = resources
+        .iter()
+        .filter(|resource| resource.enabled_for(cli))
+        .cloned()
+        .collect::<Vec<_>>();
+    let issues = projection_issues(cli, &selected_resources);
+    if let Some(issue) = issues.first() {
+        return Err(format!(
+            "extensions_project_mcp_projection_unsupported:{}:{}",
+            issue.code, issue.field
+        ));
+    }
+    let base_config = match cli {
+        ExtensionCli::Claude => "{}",
+        ExtensionCli::Codex | ExtensionCli::Grok => "",
+    };
+    match cli {
+        ExtensionCli::Claude => project_claude_json(base_config, &selected_resources),
+        ExtensionCli::Codex => project_toml(base_config, cli, &selected_resources, "http_headers"),
+        ExtensionCli::Grok => project_toml(base_config, cli, &selected_resources, "headers"),
+    }
+}
+
 // 将字段级模型问题与目标 CLI 能力问题合并，禁止调用方把不支持字段当作成功。
 fn projection_issues(cli: ExtensionCli, resources: &[McpResource]) -> Vec<McpProjectionIssue> {
     let mut issues = Vec::new();

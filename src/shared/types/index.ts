@@ -494,6 +494,10 @@ export interface TerminalSession {
   cliSessionId?: string;
   /** 本次会话使用的原生 Provider 快照；恢复时复用，避免后续切换污染旧会话。 */
   providerSnapshot?: NativeProviderLaunchSnapshot;
+  /** 本次会话使用的 MCP/Skills 项目启动快照；重连不重新注入，创建新进程才重新解析。 */
+  extensionSnapshotId?: string;
+  extensionPolicyRevision?: number;
+  extensionLaunchStatus?: "applied" | "globalOnly" | "error";
   remoteTranscriptRef?: string;
   remoteHistoryConsumerId?: string;
   remoteHistorySourceInstanceId?: string;

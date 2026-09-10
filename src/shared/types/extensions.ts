@@ -1,5 +1,10 @@
 export type ExtensionCli = "claude" | "codex" | "grok";
 
+export type ExtensionScopeKind = "project" | "worktree";
+export type ExtensionPolicyKind = "mcp" | "skill";
+export type ExtensionPolicyMode = "inherit" | "custom";
+export type ProjectExtensionApplicationStatus = "applied" | "globalOnly" | "error";
+
 export type McpTransport = "stdio" | "sse" | "streamableHttp";
 
 export type McpConfigFormat = "json" | "toml";
@@ -286,5 +291,78 @@ export interface GithubSkillInstallResult {
   resolvedCommit: string;
   packages: SkillPackageView[];
   skipped: number;
+  warnings: string[];
+}
+
+export interface ProjectExtensionPolicyGetRequest {
+  projectId: string;
+  worktreeId?: string | null;
+  environmentKind?: "local" | "wsl" | string | null;
+  environmentId?: string | null;
+}
+
+export interface ProjectExtensionPolicyInput {
+  cli: ExtensionCli;
+  kind: ExtensionPolicyKind;
+  mode: ExtensionPolicyMode;
+  selectedIds: string[];
+}
+
+export interface ProjectExtensionPolicySaveRequest {
+  scopeKind: ExtensionScopeKind;
+  scopeId: string;
+  projectId: string;
+  policies: ProjectExtensionPolicyInput[];
+}
+
+export interface ProjectExtensionPolicyView {
+  scopeKind: ExtensionScopeKind;
+  scopeId: string;
+  projectId: string;
+  cli: ExtensionCli;
+  kind: ExtensionPolicyKind;
+  mode: ExtensionPolicyMode;
+  selectedIds: string[];
+  effectiveIds: string[];
+  appliedIds: string[];
+  inheritedFrom: string;
+  revision: number;
+  capabilityStatus: CapabilityStatus;
+  applicationStatus: ProjectExtensionApplicationStatus;
+  reason: string | null;
+}
+
+export interface ProjectExtensionPolicyResponse {
+  projectId: string;
+  worktreeId: string | null;
+  scopeKind: ExtensionScopeKind;
+  scopeId: string;
+  resources: McpResourceRedacted[];
+  packages: SkillPackageView[];
+  policies: ProjectExtensionPolicyView[];
+  globalMcpIds: Record<ExtensionCli, string[]>;
+  globalSkillIds: Record<ExtensionCli, string[]>;
+}
+
+export interface ProjectExtensionLaunchRequest {
+  projectId: string;
+  worktreeId?: string | null;
+  cli: ExtensionCli;
+  environmentKind: "local" | "wsl";
+  environmentId: string;
+  providerSnapshotId?: string | null;
+  providerId?: string | null;
+}
+
+export interface ProjectExtensionLaunchPlan {
+  snapshotId: string | null;
+  policyRevision: number;
+  mcpStatus: ProjectExtensionApplicationStatus;
+  skillStatus: ProjectExtensionApplicationStatus;
+  mcpConfigPath: string | null;
+  claudeSettingsPath: string | null;
+  codexConfigOverrides: string[];
+  appliedMcpIds: string[];
+  appliedSkillIds: string[];
   warnings: string[];
 }

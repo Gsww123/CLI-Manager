@@ -47,6 +47,7 @@ interface Props {
   cloneFrom?: Project;
   defaultGroupId?: string | null;
   onManageSshHosts?: () => void;
+  onOpenExtensions?: () => void;
   onClose: () => void;
 }
 
@@ -100,7 +101,7 @@ function initialWslPickerPath(currentPath: string): string {
   return isWslUncPath(normalized) ? parentWslUncPath(normalized) : DEFAULT_WSL_PICKER_PATH;
 }
 
-export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHosts, onClose }: Props) {
+export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHosts, onOpenExtensions, onClose }: Props) {
   const { language, t } = useI18n();
   const text = (zh: string, en: string) => pickByLanguage(language, zh, en);
   const { createProject, updateProject, groups } = useProjectStore();
@@ -964,6 +965,11 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
             </div>
 
             <DialogFooter className="shrink-0 border-t border-border/60 bg-surface-container-low/35 px-5 py-3">
+              {isEdit && project && onOpenExtensions && (
+                <Button type="button" variant="outline" onClick={onOpenExtensions} className="mr-auto">
+                  {t("extensions.page.title")}
+                </Button>
+              )}
               <Button variant="outline" onClick={onClose} className="min-w-20">
                 {t("common.cancel")}
               </Button>
