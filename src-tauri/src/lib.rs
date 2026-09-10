@@ -30,6 +30,8 @@ pub(crate) use app::migrations::{
     MIGRATION_ADD_NODE_APPEARANCE_VERSION, MIGRATION_ADD_SSH_CONFIG_FILE_SQL,
     MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION, MIGRATION_CREATE_SSH_AGENT_INTEGRATIONS_SQL,
     MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+    MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION, MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
+    MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
     MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
 };
 
@@ -558,6 +560,16 @@ pub fn run() {
             commands::extensions::extensions_mcp_get,
             commands::extensions::extensions_mcp_upsert,
             commands::extensions::extensions_mcp_delete,
+            commands::extensions::extensions_import_preview,
+            commands::extensions::extensions_import_apply,
+            commands::extensions::extensions_skills_list_packages,
+            commands::extensions::extensions_skills_list_installations,
+            commands::extensions::extensions_skills_deploy,
+            commands::extensions::extensions_skills_uninstall,
+            commands::extensions::extensions_skills_restore,
+            commands::extensions::extensions_github_skill_preview,
+            commands::extensions::extensions_github_skill_install,
+            commands::extensions::extensions_github_skill_cancel,
             commands::opencode_hook::opencode_hook_status,
             commands::opencode_hook::opencode_hook_install,
             commands::opencode_hook::opencode_hook_uninstall,
@@ -1258,6 +1270,9 @@ mod provider_migration_tests {
         MIGRATION_ADD_USAGE_ERROR_DETAIL_VERSION,
         MIGRATION_BACKFILL_REQUEST_LOG_PROJECT_PATH_VERSION,
         MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+        MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION,
+        MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
+        MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
         MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION,
         MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
     };
@@ -1389,9 +1404,25 @@ mod provider_migration_tests {
         assert!(extension_mcp_migration
             .sql
             .contains("idx_extension_mcp_resources_updated_at"));
+        let extension_skill_migration = registry
+            .iter()
+            .find(|migration| migration.version == MIGRATION_CREATE_EXTENSION_SKILLS_VERSION)
+            .expect("extension skill migration");
+        assert_eq!(
+            extension_skill_migration.description,
+            MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION
+        );
+        assert!(extension_mcp_migration.version < extension_skill_migration.version);
+        assert_eq!(extension_skill_migration.sql, MIGRATION_CREATE_EXTENSION_SKILLS_SQL);
+        assert!(extension_skill_migration
+            .sql
+            .contains("CREATE TABLE IF NOT EXISTS extension_skill_packages"));
+        assert!(extension_skill_migration
+            .sql
+            .contains("CREATE TABLE IF NOT EXISTS extension_skill_installations"));
         assert!(registry
             .iter()
-            .all(|migration| migration.version <= extension_mcp_migration.version));
+            .all(|migration| migration.version <= extension_skill_migration.version));
         assert!(registry.iter().any(|migration| migration.version == 29
             && migration.description == "optimize_unified_usage_record_queries"));
     }

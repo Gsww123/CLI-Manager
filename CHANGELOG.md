@@ -7,6 +7,12 @@
 - 新增版本化 MCP canonical 模型与 SQLite 受管资源表，统一 resourceId、serverKey、传输、环境变量、请求头、secretRef、超时及来源字段，并以 revision 保护并发保存。
 - 新增 Claude JSON、Codex/Grok TOML 的解析与字段级投影预览：保留无关配置和未知厂商字段，隔离 perCliExtensions，明确报告传输/超时等不支持项，并在 IPC 返回前递归脱敏。
 
+### MCP/Skills 导入与 Skill 同步
+
+- 新增 cc-switch 只读导入、原生 MCP/Skill 预览与指纹确认应用；来源数据库和源目录不被改写，重复导入保持幂等并支持跳过、替换和另存为冲突策略。
+- Skill 完整包发布到应用数据目录，支持本机与 Windows WSL 的 auto/symlink/copy 部署、所有权/哈希检测、外部修改保护、备份恢复及卸载后的可恢复记录。
+- 新增 GitHub 仓库/ref/子目录和多 Skill 候选预览，安装锁定解析后的 commit，限制归档大小/路径/特殊文件且不执行仓库脚本；支持取消、失败重试和重复安装跳过。
+
 ### 大型仓库 Git 变更面板性能（#257）
 
 - 修复数万文件变更时打开 Git 面板卡顿的问题：变更树按视口虚拟渲染，大列表在 Worker 中建树，失败时分批构造；完整保留文件列表、目录批量操作、分组、右键及拖拽能力。
