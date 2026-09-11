@@ -24,18 +24,6 @@ export {
 } from "./importSync";
 
 export {
-  getActiveExtensionHome,
-  getExtensionHome,
-  listExtensionWslDistros,
-  previewExtensionHome,
-  resetExtensionHome,
-  selectExtensionHome,
-  type ExtensionEnvironmentKind,
-  type ExtensionHomeInput,
-  type ExtensionHomeState,
-} from "./globalManagement";
-
-export {
   garbageCollectProjectExtensionSnapshots,
   getProjectExtensionPolicy,
   prepareProjectExtensionLaunch,

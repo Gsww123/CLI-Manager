@@ -35,9 +35,15 @@ export function listManagedSkillPackages(): Promise<SkillPackageView[]> {
   return invoke<SkillPackageView[]>("extensions_skills_list_packages");
 }
 
-/** 读取 Skill 部署实例和外部修改状态。 */
-export function listManagedSkillInstallations(): Promise<SkillInstallationView[]> {
-  return invoke<SkillInstallationView[]>("extensions_skills_list_installations");
+/** 读取指定供应商 Home 下的 Skill 部署实例和外部修改状态。 */
+export function listManagedSkillInstallations(
+  environmentKind: string,
+  environmentId: string,
+): Promise<SkillInstallationView[]> {
+  return invoke<SkillInstallationView[]>("extensions_skills_list_installations", {
+    environmentKind,
+    environmentId,
+  });
 }
 
 /** 将 Skill 包按 auto/symlink/copy 策略部署到明确环境。 */

@@ -328,11 +328,6 @@ pub(crate) async fn list_package_views() -> Result<Vec<SkillPackageView>, String
         .collect::<Result<Vec<_>, _>>()
 }
 
-// 解析安装列表并检测本机目标；外部修改只更新标记，不删除用户文件。
-pub(crate) async fn list_installation_views() -> Result<Vec<SkillInstallationView>, String> {
-    list_installation_views_for_environment(None, None).await
-}
-
 // 按目标环境先筛选再探测，避免某个不可用的 WSL 发行版阻塞本机项目策略读取。
 pub(crate) async fn list_installation_views_for_environment(
     environment_kind: Option<&str>,

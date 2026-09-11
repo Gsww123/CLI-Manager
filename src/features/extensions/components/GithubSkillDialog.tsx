@@ -29,11 +29,11 @@ import type {
   GithubSkillPreview,
   SkillSyncMode,
 } from "../../../shared/types/extensions";
-import type { useExtensionEnvironment } from "../hooks/useExtensionEnvironment";
+import type { NativeProviderHomeState } from "../../settings/api/nativeProviderTypes";
 
 interface GithubSkillDialogProps {
   open: boolean;
-  environment: ReturnType<typeof useExtensionEnvironment>;
+  home: NativeProviderHomeState | null;
   onClose: () => void;
   onInstalled: () => void;
 }
@@ -69,7 +69,7 @@ function operationId(): string {
   return `github-${uuid ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
 }
 
-export function GithubSkillDialog({ open, environment, onClose, onInstalled }: GithubSkillDialogProps) {
+export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSkillDialogProps) {
   const { t } = useI18n();
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [reference, setReference] = useState("");
@@ -136,13 +136,13 @@ export function GithubSkillDialog({ open, environment, onClose, onInstalled }: G
       setError(t("extensions.skills.githubSelectionEmpty"));
       return;
     }
-    const targetHome = environment.home;
-    const targetEnvironmentKind = environment.environmentKind;
-    const targetEnvironmentId = environment.environmentId;
+    const targetHome = home;
     if (!targetHome) {
       setError(t("extensions.skills.noHome"));
       return;
     }
+    const targetEnvironmentKind = targetHome.identity.environmentKind;
+    const targetEnvironmentId = targetHome.identity.environmentId;
     const nextOperationId = operationId();
     setActiveOperationId(nextOperationId);
     setBusy("install");
@@ -314,9 +314,9 @@ export function GithubSkillDialog({ open, environment, onClose, onInstalled }: G
                   onChange={(value) => setTargetMode((value as SkillSyncMode) || "auto")}
                 />
               </SimpleGrid>
-              {environment.home ? (
+              {home ? (
                 <Text size="xs" c="dimmed" className="break-all">
-                  {t("extensions.skills.githubTargetPath", { path: environment.home.targets[`${targetCli}ConfigDir` as keyof typeof environment.home.targets] as string })}
+                  {t("extensions.skills.githubTargetPath", { path: home.targets[`${targetCli}ConfigDir` as keyof typeof home.targets] as string })}
                 </Text>
               ) : (
                 <Alert color="yellow">{t("extensions.skills.noHome")}</Alert>
@@ -340,7 +340,7 @@ export function GithubSkillDialog({ open, environment, onClose, onInstalled }: G
                 </Stack>
               </ScrollArea>
               <Group justify="flex-end">
-                <Button color="cliPrimary" leftSection={<Check size={15} />} loading={busy === "install" || busy === "deploy"} disabled={Boolean(busy) || selectedIds.size === 0 || !environment.home} onClick={() => void install()}>
+                <Button color="cliPrimary" leftSection={<Check size={15} />} loading={busy === "install" || busy === "deploy"} disabled={Boolean(busy) || selectedIds.size === 0 || !home} onClick={() => void install()}>
                   {t("extensions.skills.githubInstall")}
                 </Button>
               </Group>

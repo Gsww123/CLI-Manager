@@ -118,9 +118,21 @@ pub async fn extensions_skills_list_packages() -> Result<Vec<SkillPackageView>, 
 }
 
 #[tauri::command]
-// 列出 Skill 的本机/WSL 部署实例，并实时标记缺失和外部修改。
-pub async fn extensions_skills_list_installations() -> Result<Vec<SkillInstallationView>, String> {
-    skill_deployment::list_installation_views().await
+// 列出供应商当前 Home 下的 Skill 部署实例，并实时标记缺失和外部修改。
+pub async fn extensions_skills_list_installations(
+    environment_kind: String,
+    environment_id: String,
+) -> Result<Vec<SkillInstallationView>, String> {
+    let environment_kind = environment_kind.trim();
+    let environment_id = environment_id.trim();
+    if environment_kind.is_empty() || environment_id.is_empty() {
+        return Err("extensions_skill_environment_required".to_string());
+    }
+    skill_deployment::list_installation_views_for_environment(
+        Some(environment_kind),
+        Some(environment_id),
+    )
+    .await
 }
 
 #[tauri::command]

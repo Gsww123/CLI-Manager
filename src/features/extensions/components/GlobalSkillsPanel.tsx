@@ -25,11 +25,9 @@ import type {
   SkillSyncMode,
   SkillInstallationView,
 } from "../../../shared/types/extensions";
-import type { useExtensionEnvironment } from "../hooks/useExtensionEnvironment";
+import type { NativeProviderHomeState } from "../../settings/api/nativeProviderTypes";
 import { ExtensionImportDialog } from "./ExtensionImportDialog";
 import { GithubSkillDialog } from "./GithubSkillDialog";
-
-type EnvironmentState = ReturnType<typeof useExtensionEnvironment>;
 
 const CLI_ORDER: ExtensionCli[] = ["claude", "codex", "grok"];
 
@@ -56,12 +54,11 @@ function normalizePath(value: string): string {
   return value.trim().replace(/\//g, "\\").replace(/\\+$/, "").toLocaleLowerCase();
 }
 
-function isCurrentInstallation(installation: SkillInstallationView, environment: EnvironmentState): boolean {
-  const home = environment.home;
+function isCurrentInstallation(installation: SkillInstallationView, home: NativeProviderHomeState | null): boolean {
   return Boolean(
     home
-      && installation.environmentKind === environment.environmentKind
-      && installation.environmentId === environment.environmentId
+      && installation.environmentKind === home.identity.environmentKind
+      && installation.environmentId === home.identity.environmentId
       && normalizePath(installation.homePath) === normalizePath(home.homePath),
   );
 }
@@ -86,12 +83,12 @@ function statusColor(installation: SkillInstallationView): string {
 interface SkillDeployDialogProps {
   packageView: SkillPackageView | null;
   open: boolean;
-  environment: EnvironmentState;
+  home: NativeProviderHomeState | null;
   onClose: () => void;
   onDeployed: () => Promise<void>;
 }
 
-function SkillDeployDialog({ packageView, open, environment, onClose, onDeployed }: SkillDeployDialogProps) {
+function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: SkillDeployDialogProps) {
   const { t } = useI18n();
   const [cli, setCli] = useState<ExtensionCli>("claude");
   const [mode, setMode] = useState<SkillSyncMode>("auto");
@@ -107,16 +104,16 @@ function SkillDeployDialog({ packageView, open, environment, onClose, onDeployed
   }, [open, packageView?.packageId]);
 
   const deploy = async () => {
-    if (!packageView || !environment.home) return;
+    if (!packageView || !home) return;
     setSaving(true);
     setError(false);
     try {
       await deployManagedSkill({
         packageId: packageView.packageId,
-        environmentKind: environment.environmentKind,
-        environmentId: environment.environmentId,
+        environmentKind: home.identity.environmentKind,
+        environmentId: home.identity.environmentId,
         cli,
-        homePath: environment.home.homePath,
+        homePath: home.homePath,
         mode,
       });
       toast.success(t("extensions.skills.deploySuccess"));
@@ -170,11 +167,11 @@ function SkillDeployDialog({ packageView, open, environment, onClose, onDeployed
             />
           </SimpleGrid>
           <Text size="xs" c="dimmed" className="break-all">
-            {environment.home?.targets[`${cli}ConfigDir` as keyof typeof environment.home.targets] as string ?? ""}
+            {home?.targets[`${cli}ConfigDir` as keyof typeof home.targets] as string ?? ""}
           </Text>
           <Group justify="flex-end" gap="xs">
             <Button variant="light" color="gray" disabled={saving} onClick={onClose}>{t("extensions.import.close")}</Button>
-            <Button color="cliPrimary" leftSection={<Download size={15} />} loading={saving} disabled={!packageView || !environment.home} onClick={() => void deploy()}>
+            <Button color="cliPrimary" leftSection={<Download size={15} />} loading={saving} disabled={!packageView || !home} onClick={() => void deploy()}>
               {t("extensions.skills.deployNow")}
             </Button>
           </Group>
@@ -189,7 +186,7 @@ interface GlobalSkillsPanelProps {
   installations: SkillInstallationView[];
   loading: boolean;
   searchValue: string;
-  environment: EnvironmentState;
+  home: NativeProviderHomeState | null;
   onRefresh: () => Promise<void>;
 }
 
@@ -199,7 +196,7 @@ export function GlobalSkillsPanel({
   installations,
   loading,
   searchValue,
-  environment,
+  home,
   onRefresh,
 }: GlobalSkillsPanelProps) {
   const { t } = useI18n();
@@ -209,8 +206,8 @@ export function GlobalSkillsPanel({
   const [deployPackage, setDeployPackage] = useState<SkillPackageView | null>(null);
 
   const currentInstallations = useMemo(
-    () => installations.filter((installation) => isCurrentInstallation(installation, environment)),
-    [environment, installations],
+    () => installations.filter((installation) => isCurrentInstallation(installation, home)),
+    [home, installations],
   );
   const filteredPackages = useMemo(() => {
     const query = searchValue.trim().toLocaleLowerCase();
@@ -276,7 +273,7 @@ export function GlobalSkillsPanel({
       <Group gap="xs" wrap="wrap">
         <Badge variant="light">{t("extensions.skills.packageCount", { count: packages.length })}</Badge>
         <Badge variant="light">{t("extensions.skills.installationCount", { count: currentInstallations.length })}</Badge>
-        {!environment.home && <Badge color="yellow">{t("extensions.skills.noHome")}</Badge>}
+        {!home && <Badge color="yellow">{t("extensions.skills.noHome")}</Badge>}
       </Group>
 
       {loading && packages.length === 0 ? (
@@ -302,7 +299,7 @@ export function GlobalSkillsPanel({
                       </Group>
                       <Text size="xs" c="dimmed" className="break-words">{packageView.description || t("extensions.skills.descriptionLabel")}</Text>
                     </Stack>
-                    <Button size="compact-sm" color="cliPrimary" leftSection={<Download size={15} />} disabled={!environment.home} onClick={() => setDeployPackage(packageView)}>
+                    <Button size="compact-sm" color="cliPrimary" leftSection={<Download size={15} />} disabled={!home} onClick={() => setDeployPackage(packageView)}>
                       {t("extensions.skills.deploy")}
                     </Button>
                   </Group>
@@ -360,7 +357,7 @@ export function GlobalSkillsPanel({
       <SkillDeployDialog
         packageView={deployPackage}
         open={Boolean(deployPackage)}
-        environment={environment}
+        home={home}
         onClose={() => setDeployPackage(null)}
         onDeployed={onRefresh}
       />
@@ -371,7 +368,7 @@ export function GlobalSkillsPanel({
       />
       <GithubSkillDialog
         open={githubOpen}
-        environment={environment}
+        home={home}
         onClose={() => setGithubOpen(false)}
         onInstalled={() => void onRefresh()}
       />
