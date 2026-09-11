@@ -1682,3 +1682,24 @@ V1.4.0：虚拟化变更树、Worker 建树及刷新合并；64887 文件浏览�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 119: Fix global MCP and Skills provider Home reuse
+
+**Date**: 2026-09-11
+**Task**: Fix global MCP and Skills provider Home reuse
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+Removed the duplicate global Environment & Home editor, reused the provider active Home for Skills/GitHub deployment, scoped Skill installation inspection to the active environment, and removed obsolete extension Home state/API plus translations. Verified TypeScript, architecture, build, extension tests, Rust checks, and reran the one flaky daemon port test successfully.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38b2c468` | (see git log) |
+
+### Status
+
+[OK] **Completed**
