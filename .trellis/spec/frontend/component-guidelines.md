@@ -2087,6 +2087,10 @@ For a third-party picker rendered in an open Shadow DOM, hide the browser-native
 
 **What**: The terminal Markdown preview uses the existing Radix Select primitive for historical answer selection. Its portal content must receive the terminal theme variables explicitly, and its viewport must use `ui-thin-scroll` with `--ui-scrollbar-thumb` / `--ui-scrollbar-track` from the terminal theme. Do not use a native `<select>` when the popup scrollbar or surface needs terminal styling.
 
+`MarkdownPreviewAnswerSelect` owns a terminal-style overlay thumb because Radix explicitly hides the native Viewport scrollbar. The Viewport is the only scroll source; pointer capture maps thumb movement to its scroll range, and wheel/keyboard scrolling updates the same thumb. The fixed list-end button sits outside that viewport and changes only scroll position. Its popup has dialog semantics containing a labeled listbox and a native button; Tab moves between the focused option and the fixed action, while Radix still owns selection and Escape dismissal. Bound the total popup height by both 228px and the available viewport height, reserving footer space.
+
+`useMarkdownPreviewScroll` binds a pending jump to the terminal/CLI session key and original message index. The body button changes only the current answer's scroll position; the header button chooses the last loaded answer by `messageIndex`, including repeated clicks on the same answer. Apply a jump after the matching content commit and keep its bottom anchor for delayed layout changes to that same content only. User scrolling, manual selection, new content, closing, or session changes cancel the anchor; normal background refresh must preserve an older selected answer. All observers/listeners are scoped to the rendered preview and cleaned up on close/unmount. A session identity change invalidates in-flight reads and closes superseded SSH consumers.
+
 Every configured Agent CLI terminal keeps the right-top preview control visible.
 It can open when its `cliTool` or project tool resolves to a registered
 `HistorySource` and the session has a bound `cliSessionId`; this includes Pi's
@@ -2116,7 +2120,7 @@ KaTeX's package stylesheet owns the `.katex` base font size. Shared Markdown CSS
 <style>.ui-markdown .katex { font-size: 1em; }</style>
 ```
 
-**Tests**: Run `node --test scripts/terminalMarkdownPreview.test.mjs scripts/markdownRendering.test.mjs` and `npx tsc --noEmit`; manually verify long answer lists, keyboard selection, Pi and restored sessions without a new conversation, a configured CLI without a bound session ID, normal scrolling, `Ctrl`/`Cmd` wheel zoom limits, light/dark terminal themes, background images, and clear KaTeX formulas.
+**Tests**: Run `node --test scripts/terminalMarkdownPreview.test.mjs scripts/terminalMarkdownPreviewNavigation.test.mjs scripts/markdownRendering.test.mjs` and `npx tsc --noEmit`; manually verify long answer lists, thumb dragging, all three jump controls, Tab/Shift+Tab/Enter/Space/Escape, Pi and restored sessions without a new conversation, a configured CLI without a bound session ID, normal scrolling, `Ctrl`/`Cmd` wheel zoom limits, light/dark terminal themes, background images, and clear KaTeX formulas.
 
 ### Convention: Settings pages fill the available content width and wrap controls
 

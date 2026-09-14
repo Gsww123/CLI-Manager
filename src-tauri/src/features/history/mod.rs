@@ -77,6 +77,7 @@ pub(crate) use index_cache::{
     invalidate_history_caches, invalidate_history_stats_caches, session_file_fingerprint,
 };
 mod session_detail;
+mod session_query;
 pub(crate) use session_detail::build_session_detail;
 use session_detail::{
     build_session_detail_with_roots, build_v2_adapter_session, build_v2_adapter_session_from_parts,
@@ -255,8 +256,8 @@ const OPENCODE_SESSION_LOCATOR_MARKER: &str = "#session=";
 const DAEMON_READY_WAIT_ATTEMPTS: usize = 60;
 const DAEMON_READY_WAIT_INTERVAL: Duration = Duration::from_millis(100);
 
+// 精确会话命中直接读取；文本搜索及已标脏数据等待刷新，目录失败时保留旧扫描路径。
 #[tauri::command]
-// 按筛选分页读取目录会话，必要时刷新索引并回退到旧扫描路径。
 pub async fn history_list_sessions(
     app: tauri::AppHandle,
     source: Option<String>,
@@ -275,23 +276,22 @@ pub async fn history_list_sessions(
         grok_session_root.clone(),
     )
     .with_kimi_config_dir(kimi_config_dir.clone());
-    let targeted_query = query
-        .as_deref()
-        .is_some_and(|value| !value.trim().is_empty());
-    if catalog::is_dirty() || targeted_query {
-        // Mutations invalidate the V2 catalog. Complete that refresh before
-        // reading so a successful edit/delete is visible immediately. A
-        // query also waits for refresh so a newly changed Codex thread name
-        // participates in SQL filtering during the same request.
-        let _ = catalog::ensure_refresh(app.clone(), roots.clone(), false, true).await;
-    }
-    match catalog::list_sessions(
-        &roots,
-        source.clone(),
-        project_path.clone(),
-        query.clone(),
+    match session_query::list_sessions_with_query_refresh(
+        catalog::is_dirty(),
+        query.as_deref(),
         limit,
         offset,
+        || {
+            catalog::list_sessions(
+                &roots,
+                source.clone(),
+                project_path.clone(),
+                query.clone(),
+                limit,
+                offset,
+            )
+        },
+        || catalog::ensure_refresh(app.clone(), roots.clone(), false, true),
     )
     .await
     {
