@@ -16,6 +16,9 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, Check, FolderOpen, RefreshCw } from "lucide-react";
 import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
+import { useSettingsStore } from "../../../shared/preferences/settingsStore";
+import { getActiveNativeProviderHome } from "../../settings/api/nativeProviderHome";
+import { suggestImportSources, type ImportSourceSuggestion } from "../lib/importSources";
 import {
   applyExtensionImport,
   previewExtensionImport,
@@ -33,6 +36,8 @@ interface ExtensionImportDialogProps {
   open: boolean;
   onClose: () => void;
   onApplied: () => void;
+  onBeforeMcpApply?: () => Promise<void>;
+  initialSource?: { sourceKind: ExtensionImportSourceKind; cli?: ExtensionCli; sourcePath: string };
 }
 
 const SOURCE_KIND_KEYS: Record<ExtensionImportSourceKind, TranslationKey> = {
@@ -99,7 +104,7 @@ function resultReason(result: ExtensionImportItemResult): string {
   return result.reason?.replace(/^extensions_[a-z0-9_]+$/, (value) => value.replace(/_/g, " ")) ?? "";
 }
 
-export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImportDialogProps) {
+export function ExtensionImportDialog({ open, onClose, onApplied, initialSource, onBeforeMcpApply }: ExtensionImportDialogProps) {
   const { t } = useI18n();
   const [sourceKind, setSourceKind] = useState<ExtensionImportSourceKind>("nativeMcp");
   const [cli, setCli] = useState<ExtensionCli>("claude");
@@ -110,12 +115,15 @@ export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImp
   const [result, setResult] = useState<Awaited<ReturnType<typeof applyExtensionImport>> | null>(null);
   const [busy, setBusy] = useState<"preview" | "apply" | "choose" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<ImportSourceSuggestion[]>([]);
+  const hookRoot = useSettingsStore((state) => cli === "claude" ? state.claudeHookConfigDir
+    : cli === "codex" ? state.codexHookConfigDir : state.grokHookConfigDir);
 
   useEffect(() => {
     if (!open) return;
-    setSourceKind("nativeMcp");
-    setCli("claude");
-    setSourcePath("");
+    setSourceKind(initialSource?.sourceKind ?? "nativeMcp");
+    setCli(initialSource?.cli ?? "claude");
+    setSourcePath(initialSource?.sourcePath ?? "");
     setPreview(null);
     setSelectedIds(new Set());
     setConflictPolicy("skip");
@@ -123,6 +131,20 @@ export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImp
     setBusy(null);
     setError(null);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let stale = false;
+    setSuggestions([]);
+    // Explicit inventory/source selections and manual input are never overwritten.
+    void getActiveNativeProviderHome().then(home => home, () => null).then(home => {
+      if (stale) return;
+      const next = suggestImportSources(cli, sourceKind, hookRoot, home);
+      setSuggestions(next);
+      setSourcePath(current => current || next[0]?.path || "");
+    });
+    return () => { stale = true; };
+  }, [open, cli, sourceKind, hookRoot]);
 
   const selectedItems = useMemo(
     () => preview?.items.filter((item) => selectedIds.has(item.candidateId)) ?? [],
@@ -188,6 +210,7 @@ export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImp
     setBusy("apply");
     setError(null);
     try {
+      if (selectedItems.some(item => item.kind === "mcp")) await onBeforeMcpApply?.();
       const next = await applyExtensionImport({
         sourceKind: preview.sourceKind as ExtensionImportSourceKind,
         cli: sourceKind === "skillDirectory" ? null : cli,
@@ -233,7 +256,7 @@ export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImp
       onClick={close}
     >
       <div
-        className="ui-surface-card flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl p-5"
+        className="ui-surface-card flex max-h-[92vh] w-full max-w-4xl flex-col overflow-y-auto rounded-2xl p-5"
         onClick={(event) => event.stopPropagation()}
       >
         <Stack gap="sm">
@@ -260,8 +283,17 @@ export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImp
             }}
           />
 
+          {sourceKind !== "ccswitch" && <Text size="sm" c="dimmed">{t("extensions.import.autoHelp")}</Text>}
+          {suggestions.length > 0 && <Select
+            label={t("extensions.import.detectedSources")}
+            value={suggestions.some(item => item.path === sourcePath) ? sourcePath : null}
+            disabled={Boolean(busy)}
+            data={suggestions.map(item => ({ value: item.path, label: `${t(item.origin === "hook" ? "extensions.import.hookSource" : "extensions.import.homeSource")} · ${item.path}` }))}
+            onChange={value => {
+              if (!value) return;
+              setSourcePath(value); setPreview(null); setSelectedIds(new Set()); setResult(null); setError(null);
+            }} />}
           <Group align="flex-end" gap="xs" wrap="wrap">
-            {sourceKind !== "skillDirectory" && (
               <Select
                 className="min-w-[180px] flex-1"
                 label={t("extensions.import.cli")}
@@ -270,12 +302,12 @@ export function ExtensionImportDialog({ open, onClose, onApplied }: ExtensionImp
                 data={(["claude", "codex", "grok"] as ExtensionCli[]).map((item) => ({ value: item, label: t(CLI_LABEL_KEYS[item]) }))}
                 onChange={(value) => {
                   setCli((value as ExtensionCli) || "claude");
+                  if (sourceKind !== "ccswitch") setSourcePath("");
                   setPreview(null);
                   setSelectedIds(new Set());
                   setResult(null);
                 }}
               />
-            )}
             <TextInput
               className="min-w-[260px] flex-[2]"
               label={t("extensions.import.sourcePath")}

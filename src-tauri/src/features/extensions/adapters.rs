@@ -12,6 +12,30 @@ use super::model::{
 const CLAUDE_MCP_ROOT: &str = "mcpServers";
 const TOML_MCP_ROOT: &str = "mcp_servers";
 
+// Full projection stays in Rust; global apply merges only explicitly managed keys.
+pub(crate) fn project_for_apply(
+    cli: ExtensionCli,
+    base: &str,
+    resources: &[McpResource],
+) -> Result<String, String> {
+    let selected: Vec<_> = resources
+        .iter()
+        .filter(|r| r.enabled_for(cli))
+        .cloned()
+        .collect();
+    if selected.iter().any(|r| !r.secret_refs.is_empty()) {
+        return Err("extensions_secret_reference_unresolved".into());
+    }
+    if let Some(issue) = projection_issues(cli, &selected).first() {
+        return Err(format!("extensions_projection_unsupported:{}", issue.code));
+    }
+    match cli {
+        ExtensionCli::Claude => project_claude_json(base, &selected),
+        ExtensionCli::Codex => project_toml(base, cli, &selected, "http_headers"),
+        ExtensionCli::Grok => project_toml(base, cli, &selected, "headers"),
+    }
+}
+
 #[derive(Clone)]
 pub struct ParsedNativeConfig {
     pub cli: ExtensionCli,
@@ -164,7 +188,7 @@ fn extension_projection_issues(
         return issues;
     };
     for (field, value) in values {
-        if is_reserved_native_field(field) {
+        if is_reserved_native_field(cli, field) {
             issues.push(McpProjectionIssue {
                 code: "reserved_cli_extension_field".to_string(),
                 field: format!("perCliExtensions.{}.{}", cli.key(), field),
@@ -701,7 +725,7 @@ fn project_json_entry(
     insert_json_string_map(entry, "headers", &resource.headers);
     if let Some(values) = extension_for(resource, ExtensionCli::Claude) {
         for (field, value) in values {
-            if !is_reserved_native_field(field) {
+            if !is_reserved_native_field(ExtensionCli::Claude, field) {
                 entry.insert(field.clone(), value.clone());
             }
         }
@@ -831,7 +855,7 @@ fn project_toml_entry(
     }
     if let Some(values) = extension_for(resource, cli) {
         for (field, json_value) in values {
-            if !is_reserved_native_field(field) {
+            if !is_reserved_native_field(cli, field) {
                 let item = json_to_toml_item(json_value)?;
                 entry.insert(field, item);
             }
@@ -903,8 +927,18 @@ fn extension_for(resource: &McpResource, cli: ExtensionCli) -> Option<&Map<Strin
     None
 }
 
-// 检查扩展字段是否与原生规范字段冲突，避免厂商扩展覆盖规范语义。
-fn is_reserved_native_field(field: &str) -> bool {
+// 保留字段按目标 CLI 判断：Claude 导入的未知 TOML 同名字段需原样保留，不能拒绝或跨 CLI 转发。
+fn is_reserved_native_field(cli: ExtensionCli, field: &str) -> bool {
+    if cli == ExtensionCli::Claude {
+        match field {
+            "startup_timeout_sec"
+            | "tool_timeout_sec"
+            | "http_headers"
+            | "bearer_token_env_var" => return false,
+            "timeout" => return true,
+            _ => {}
+        }
+    }
     [
         "type",
         "command",
@@ -1181,6 +1215,90 @@ fn has_non_second_timeout(timeout: Option<&McpTimeout>) -> bool {
 mod tests {
     use super::*;
     use crate::extensions::model::{McpResourceSource, MCP_MODEL_SCHEMA_VERSION};
+
+    // 复现 Claude 导入成功、项目 MCP 投影却拒绝其他 CLI 同名字段的不对称行为。
+    #[test]
+    fn claude_unknown_timeout_survives_import_and_project_projection() {
+        let source = r#"{"mcpServers":{"filesystem":{"command":"node","args":["server.js"],"startup_timeout_sec":60}}}"#;
+        let parsed = parse_claude_json(source).unwrap();
+        let content =
+            project_native_config_for_launch(ExtensionCli::Claude, &parsed.resources).unwrap();
+        let output: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            output["mcpServers"]["filesystem"]["startup_timeout_sec"],
+            60
+        );
+        assert_eq!(
+            parse_claude_json(&content).unwrap().resources[0].per_cli_extensions,
+            parsed.resources[0].per_cli_extensions
+        );
+        let codex =
+            project_native_config_for_launch(ExtensionCli::Codex, &parsed.resources).unwrap();
+        assert!(!codex.contains("startup_timeout_sec"));
+    }
+
+    // 目标字段冲突仍拒绝；放行 Claude 未知字段不等于允许覆盖 command 或 Codex 规范超时。
+    #[test]
+    fn reserved_fields_are_target_specific_without_allowing_canonical_overrides() {
+        for cli in ExtensionCli::all() {
+            let mut resource = safe_stdio_resource();
+            resource.per_cli_extensions.insert(
+                cli.key().to_string(),
+                Map::from_iter([("command".into(), Value::String("other".into()))]),
+            );
+            assert!(project_native_config_for_launch(cli, &[resource])
+                .unwrap_err()
+                .contains("reserved_cli_extension_field"));
+        }
+        for cli in [ExtensionCli::Codex, ExtensionCli::Grok] {
+            assert!(is_reserved_native_field(cli, "startup_timeout_sec"));
+            assert!(is_reserved_native_field(cli, "http_headers"));
+        }
+        for field in [
+            "startup_timeout_sec",
+            "tool_timeout_sec",
+            "http_headers",
+            "bearer_token_env_var",
+        ] {
+            assert!(!is_reserved_native_field(ExtensionCli::Claude, field));
+        }
+        assert!(is_reserved_native_field(ExtensionCli::Claude, "timeout"));
+    }
+
+    // 显式选择主库/项目后，仅只读重放已保存的 MCP 投影；不生成文件、不开 CLI、不输出配置秘密。
+    #[tokio::test]
+    #[ignore = "requires EXTENSION_AUDIT_DB and EXTENSION_AUDIT_PROJECT; read-only saved-data audit"]
+    async fn saved_project_mcp_projection_read_only() {
+        use sqlx::{Connection, Row};
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(std::env::var("EXTENSION_AUDIT_DB").expect("audit database required"))
+            .read_only(true);
+        let mut connection = sqlx::SqliteConnection::connect_with(&options)
+            .await
+            .unwrap();
+        let project = std::env::var("EXTENSION_AUDIT_PROJECT").expect("audit project required");
+        let row = sqlx::query("SELECT selected_ids_json FROM extension_scope_policies WHERE scope_kind='project' AND scope_id=? AND cli='claude' AND extension_kind='mcp' AND mode='custom'")
+            .bind(project).fetch_one(&mut connection).await.unwrap();
+        let ids: Vec<String> =
+            serde_json::from_str(row.get::<&str, _>("selected_ids_json")).unwrap();
+        let mut resources = Vec::new();
+        for id in &ids {
+            let row = sqlx::query(
+                "SELECT definition_json FROM extension_mcp_resources WHERE resource_id=?",
+            )
+            .bind(id)
+            .fetch_one(&mut connection)
+            .await
+            .unwrap();
+            let mut resource: McpResource =
+                serde_json::from_str(row.get::<&str, _>("definition_json")).unwrap();
+            resource.enabled_by_cli.insert("claude".into(), true);
+            resources.push(resource);
+        }
+        let content = project_native_config_for_launch(ExtensionCli::Claude, &resources).unwrap();
+        let output: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(output["mcpServers"].as_object().unwrap().len(), ids.len());
+    }
 
     // 构造含环境变量和来源信息的 stdio 资源，验证脱敏与投影边界。
     fn stdio_resource() -> McpResource {

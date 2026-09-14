@@ -362,6 +362,7 @@ export interface ProjectExtensionLaunchPlan {
   mcpConfigPath: string | null;
   claudeSettingsPath: string | null;
   codexConfigOverrides: string[];
+  codexProfileName: string | null;
   appliedMcpIds: string[];
   appliedSkillIds: string[];
   warnings: string[];

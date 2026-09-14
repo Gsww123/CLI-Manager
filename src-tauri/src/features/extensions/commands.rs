@@ -28,6 +28,35 @@ pub struct McpProjectionRequest {
 }
 
 #[tauri::command]
+pub async fn extensions_skills_inventory(
+) -> Result<crate::extensions::inventory::SkillInventory, String> {
+    crate::extensions::inventory::inspect().await
+}
+
+#[tauri::command]
+pub async fn extensions_mcp_native_preview(
+    cli: ExtensionCli,
+) -> Result<crate::extensions::native::NativePreview, String> {
+    crate::extensions::native::preview(cli).await
+}
+
+// Read status without generating a write plan or returning credentials.
+#[tauri::command]
+pub async fn extensions_mcp_native_status(
+    cli: ExtensionCli,
+) -> Result<crate::extensions::native::NativeStatus, String> {
+    crate::extensions::native::status(cli)
+}
+
+#[tauri::command]
+pub async fn extensions_mcp_native_apply(
+    cli: ExtensionCli,
+    fingerprint: String,
+) -> Result<crate::extensions::native::NativeApplyResult, String> {
+    crate::extensions::native::apply(cli, fingerprint).await
+}
+
+#[tauri::command]
 // 返回静态字段能力矩阵；版本探测和环境差异由后续能力层补充。
 pub fn extensions_mcp_capabilities() -> Vec<crate::extensions::model::McpCliCapability> {
     capability_matrix()
@@ -87,6 +116,14 @@ pub async fn extensions_mcp_set_enabled(
     enabled: bool,
 ) -> Result<McpResourceRedacted, String> {
     repository::set_mcp_resource_enabled(&resource_id, cli, enabled).await
+}
+
+// 批量保存显示基线，不写 CLI 文件；后端事务保留未涉及字段与秘密。
+#[tauri::command]
+pub async fn extensions_mcp_set_selection(
+    items: Vec<repository::McpSelectionItem>, home_identity: String,
+) -> Result<Vec<McpResourceRedacted>, String> {
+    repository::set_mcp_selection(items, home_identity).await
 }
 
 #[tauri::command]

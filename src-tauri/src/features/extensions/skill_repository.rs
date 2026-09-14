@@ -59,9 +59,11 @@ async fn open_database() -> Result<SqliteConnection, String> {
         .create_if_missing(true)
         .foreign_keys(true)
         .busy_timeout(DB_BUSY_TIMEOUT);
-    SqliteConnection::connect_with(&options)
+    let mut connection = SqliteConnection::connect_with(&options)
         .await
-        .map_err(|_| "extensions_skill_db_open_failed".to_string())
+        .map_err(|_| "extensions_skill_db_open_failed".to_string())?;
+    super::database::ensure_schema(&mut connection).await?;
+    Ok(connection)
 }
 
 // 读取全部受管包，排序与前端列表稳定一致；源路径只作为受管元数据返回，不读取包正文。

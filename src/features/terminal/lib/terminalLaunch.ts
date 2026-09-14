@@ -505,8 +505,15 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
   }
 
   const resolvedShell = resolveShellForPty(options.shell, !!options.projectId, os);
-  const resolvedStartupCmd = options.startupCmd == null && project
-    ? resolveProjectStartupCommand(project)
+  const projectStartupCmd = project ? resolveProjectStartupCommand(project) : undefined;
+  // Internal project launchers historically passed the fully decorated command
+  // back here. Re-resolve that exact default without the legacy provider
+  // argument; the scoped provider snapshot owns the current provider config.
+  const usesProjectDefaultStartup = options.startupCmd == null
+    || (projectStartupCmd !== undefined
+      && options.startupCmd?.trim() === projectStartupCmd.trim());
+  const resolvedStartupCmd = usesProjectDefaultStartup && project
+    ? resolveProjectStartupCommand(project, { includeProviderOverrides: false })
     : options.startupCmd?.trim() || undefined;
   const providerSnapshot = await prepareProviderLaunchSnapshot(
     project ?? null,
@@ -549,11 +556,48 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       cli: extensionCli,
     });
   }
+  let projectCodexOverridesApplied = false;
+  const projectCodexProfileName = extensionCli === "codex"
+    ? extensionPlan?.codexProfileName?.trim()
+    : undefined;
   let providerStartupCmd = resolvedStartupCmd;
   if (providerSnapshot?.appType === "codex") {
-    providerStartupCmd = providerSnapshot.codexProfileName
-      ? withCodexProfile(resolvedStartupCmd, providerSnapshot.codexProfileName)
-      : withCodexConfigOverrides(resolvedStartupCmd, providerSnapshot.configOverrides);
+    const projectCodexOverrides = extensionCli === "codex"
+      ? extensionPlan?.codexConfigOverrides ?? []
+      : [];
+    if (projectCodexProfileName && isDirectCodexStartupCommand(resolvedStartupCmd)) {
+      const profileCommand = withCodexProfile(resolvedStartupCmd, projectCodexProfileName);
+      if (profileCommand && profileCommand !== resolvedStartupCmd) {
+        providerStartupCmd = profileCommand;
+        projectCodexOverridesApplied = true;
+      }
+    }
+    if (
+      !projectCodexOverridesApplied
+      && projectCodexOverrides.length > 0
+      && providerSnapshot.configOverrides.length > 0
+    ) {
+      try {
+        const mergedCommand = withCodexConfigOverrides(
+          resolvedStartupCmd,
+          [...providerSnapshot.configOverrides, ...projectCodexOverrides],
+        );
+        if (mergedCommand) {
+          providerStartupCmd = mergedCommand;
+          projectCodexOverridesApplied = true;
+        }
+      } catch (err) {
+        logWarn("provider and project Codex overrides could not be merged", {
+          projectId: project?.id,
+          err,
+        });
+      }
+    }
+    if (!projectCodexOverridesApplied) {
+      providerStartupCmd = providerSnapshot.codexProfileName
+        ? withCodexProfile(resolvedStartupCmd, providerSnapshot.codexProfileName)
+        : withCodexConfigOverrides(resolvedStartupCmd, providerSnapshot.configOverrides);
+    }
     if (!providerStartupCmd) {
       releaseProviderSnapshot(providerSnapshot);
       releaseProjectExtensionSnapshot(extensionPlan?.snapshotId);
@@ -577,7 +621,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
   let extensionSnapshotId = extensionPlan?.snapshotId ?? null;
   let extensionMcpStatus = extensionPlan?.mcpStatus ?? "applied";
   let extensionSkillStatus = extensionPlan?.skillStatus ?? "applied";
-  let extensionSnapshotUsed = false;
+  let extensionSnapshotUsed = projectCodexOverridesApplied;
   const extensionWarnings = [
     ...(extensionPlan?.warnings ?? []),
     ...(extensionPrepareWarning ? [extensionPrepareWarning] : []),
@@ -623,9 +667,19 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       extensionWarnings.push("extensions_project_claude_settings_command_unsupported");
     }
   }
-  if (extensionPlan && extensionCli === "codex" && extensionPlan.codexConfigOverrides.length > 0) {
+  if (
+    extensionPlan
+    && extensionCli === "codex"
+    && extensionPlan.codexConfigOverrides.length > 0
+    && !projectCodexOverridesApplied
+  ) {
     try {
-      const nextCommand = withCodexConfigOverrides(startupCmd, extensionPlan.codexConfigOverrides);
+      const profileCommand = projectCodexProfileName && isDirectCodexStartupCommand(startupCmd)
+        ? withCodexProfile(startupCmd, projectCodexProfileName)
+        : undefined;
+      const nextCommand = profileCommand && profileCommand !== startupCmd
+        ? profileCommand
+        : withCodexConfigOverrides(startupCmd, extensionPlan.codexConfigOverrides);
       if (!nextCommand) {
         extensionMcpStatus = extensionPlan.mcpStatus === "error" ? "error" : extensionMcpStatus;
         extensionSkillStatus = extensionPlan.skillStatus === "error" ? "error" : extensionSkillStatus;
@@ -633,6 +687,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       } else {
         startupCmd = nextCommand;
         extensionSnapshotUsed = true;
+        projectCodexOverridesApplied = Boolean(profileCommand && profileCommand !== nextCommand);
       }
     } catch (err) {
       extensionMcpStatus = "error";

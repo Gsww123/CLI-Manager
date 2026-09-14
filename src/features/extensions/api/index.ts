@@ -6,6 +6,8 @@ export {
   parseExtensionNativeMcpConfig,
   previewExtensionMcpProjection,
   setManagedMcpResourceEnabled,
+  setManagedMcpCliSelection,
+  saveManagedMcpSelection,
   upsertManagedMcpResource,
   validateExtensionMcpResource,
 } from "./modelAdapters";

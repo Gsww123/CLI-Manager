@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { SegmentedControl } from "@mantine/core";
 import {
   ClipboardList,
   Coins,
@@ -44,6 +45,7 @@ import { DesktopPetSettingsPage } from "../components/pages/DesktopPetSettingsPa
 import { CcConnectSettingsPage } from "../components/pages/CcConnectSettingsPage";
 import { SshHostsSettingsPage } from "../components/pages/SshHostsSettingsPage";
 import { GlobalExtensionsPage } from "../../extensions";
+import { useMcpSaveWorkflow } from "../../extensions/api/mcpSaving";
 import { useSettingsStore } from "../../../shared/preferences/settingsStore";
 import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
 import { normalizeFontFamilyStack } from "../../../shared/platform/systemFonts";
@@ -79,11 +81,11 @@ interface SettingsTabConfig {
 
 const SETTINGS_TAB_ORDER: SettingsTab[] = [
   "general",
-  "extensions",
   "terminal-theme",
   "shortcuts",
   "templates",
   "native-providers",
+  "extensions",
   "model-pricing",
   "cc-connect",
   "ssh-hosts",
@@ -253,8 +255,10 @@ function hasOverlayAboveSettings(settingsDialog: HTMLElement | null): boolean {
 export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiveTabChange }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "general");
   const [searchValue, setSearchValue] = useState("");
+  const [extensionTab, setExtensionTab] = useState<"mcp" | "skills">("mcp");
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
+  const mcpSave = useMcpSaveWorkflow(open && activeTab === "extensions");
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const wasOpenRef = useRef(open);
   const uiFontFamily = useSettingsStore((s) => s.uiFontFamily);
@@ -264,8 +268,9 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
   useFocusTrap(dialogRef, mounted && !closing);
 
   const requestClose = useCallback((_reason: "topbar" | "backdrop" | "escape") => {
-    onClose();
-  }, [onClose]);
+    if (activeTab === "extensions") mcpSave.requestLeave(onClose);
+    else onClose();
+  }, [onClose, activeTab, mcpSave.requestLeave]);
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -286,8 +291,9 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
 
   const handleTabChange = (tab: SettingsTab) => {
     if (tab === activeTab) return;
-    setActiveTab(tab);
-    onActiveTabChange?.(tab);
+    const change = () => { setActiveTab(tab); onActiveTabChange?.(tab); };
+    if (activeTab === "extensions") mcpSave.requestLeave(change);
+    else change();
   };
 
   useEffect(() => {
@@ -317,7 +323,7 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
   const activeConfig = SETTINGS_TAB_CONFIG[activeTab];
   const activeContent = (() => {
     if (activeTab === "general") return <GeneralSettingsPage />;
-    if (activeTab === "extensions") return <GlobalExtensionsPage searchValue={searchValue} />;
+    if (activeTab === "extensions") return <GlobalExtensionsPage activeTab={extensionTab} mcpSave={mcpSave} />;
     if (activeTab === "desktop-pet") return <DesktopPetSettingsPage />;
     if (activeTab === "developer") return <DeveloperSettingsPage />;
     if (activeTab === "sidebar") return <SidebarSettingsPage />;
@@ -342,6 +348,7 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
 
   return (
     <AppMantineThemeProvider>
+      {mcpSave.dialog}
       <div
         className={`ui-workspace-settings-overlay fixed inset-x-0 bottom-0 ${isLikelyMacOs() ? "top-0" : "top-[26px]"} z-50 ${
           closing ? "animate-fade-out" : "animate-fade-in"
@@ -367,7 +374,15 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
             title={t(activeConfig.title)}
             description={t(activeConfig.description)}
             searchValue={searchValue}
-            searchPlaceholder={activeConfig.searchPlaceholder ? t(activeConfig.searchPlaceholder) : undefined}
+            searchPlaceholder={activeTab !== "extensions" && activeConfig.searchPlaceholder ? t(activeConfig.searchPlaceholder) : undefined}
+            searchReplacement={activeTab === "extensions" ? <SegmentedControl
+              fullWidth value={extensionTab}
+              data={[{ value: "mcp", label: t("extensions.tabs.mcp") }, { value: "skills", label: t("extensions.tabs.skills") }]}
+              onChange={value => {
+                if (value === extensionTab) return;
+                mcpSave.requestLeave(() => setExtensionTab(value as "mcp" | "skills"));
+              }}
+            /> : undefined}
             onSearchChange={setSearchValue}
             onClose={() => requestClose("topbar")}
           >

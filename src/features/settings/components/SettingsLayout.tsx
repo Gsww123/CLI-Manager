@@ -13,6 +13,7 @@ interface SettingsLayoutProps<T extends string> {
   onSearchChange: (nextValue: string) => void;
   onClose: () => void;
   children: ReactNode;
+  searchReplacement?: ReactNode;
 }
 
 export function SettingsLayout<T extends string>({
@@ -26,6 +27,7 @@ export function SettingsLayout<T extends string>({
   onSearchChange,
   onClose,
   children,
+  searchReplacement,
 }: SettingsLayoutProps<T>) {
   return (
     <div className="ui-settings-layout flex h-full min-h-0 w-full flex-1 flex-row">
@@ -38,8 +40,9 @@ export function SettingsLayout<T extends string>({
           searchPlaceholder={searchPlaceholder}
           onSearchChange={onSearchChange}
           onClose={onClose}
+          searchReplacement={searchReplacement}
         />
-        <div className="flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
           {children}
         </div>
       </section>

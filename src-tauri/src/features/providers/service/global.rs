@@ -197,7 +197,7 @@ struct JournalTarget {
     existed: bool,
 }
 
-struct ApplyLock {
+pub(crate) struct ApplyLock {
     key: String,
 }
 
@@ -206,7 +206,7 @@ static PREVIEW_PLAN_CACHE: OnceLock<Mutex<Vec<PreviewPlanCacheEntry>>> = OnceLoc
 const PREVIEW_PLAN_CACHE_TTL: Duration = Duration::from_secs(30);
 
 // 以应用与 Home 身份组成进程内互斥键，已有同键操作时立即返回忙错误。
-fn acquire_apply_lock(app_type: &str, home_identity: &str) -> Result<ApplyLock, String> {
+pub(crate) fn acquire_apply_lock(app_type: &str, home_identity: &str) -> Result<ApplyLock, String> {
     let locks = APPLY_LOCKS.get_or_init(|| Mutex::new(HashSet::new()));
     let key = format!("{app_type}:{home_identity}");
     let mut values = locks

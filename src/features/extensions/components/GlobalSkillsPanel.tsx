@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { SkillInventoryPanel } from "./SkillInventoryPanel";
 import {
   Alert,
   Badge,
@@ -28,6 +29,11 @@ import type {
 import type { NativeProviderHomeState } from "../../settings/api/nativeProviderTypes";
 import { ExtensionImportDialog } from "./ExtensionImportDialog";
 import { GithubSkillDialog } from "./GithubSkillDialog";
+import { ExtensionCliToggle } from "./ExtensionCliToggle";
+import { ExtensionSortableList } from "./ExtensionSortableList";
+import { groupSkillPackages, skillCliPresentation } from "../lib/listPresentation";
+import type { SkillInventoryEntry } from "../api/native";
+import { skillDeploymentErrorKey } from "../lib/skillErrors";
 
 const CLI_ORDER: ExtensionCli[] = ["claude", "codex", "grok"];
 
@@ -51,7 +57,10 @@ const STATUS_LABEL_KEYS: Partial<Record<string, TranslationKey>> = {
 };
 
 function normalizePath(value: string): string {
-  return value.trim().replace(/\//g, "\\").replace(/\\+$/, "").toLocaleLowerCase();
+  const path = value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const wsl = path.match(/^\/\/(?:wsl\.localhost|wsl\$)\/[^/]+(\/.*)?$/i);
+  if (wsl) return wsl[1] || "/";
+  return /^[a-z]:\//i.test(path) || path.startsWith("//") ? path.toLocaleLowerCase() : path;
 }
 
 function isCurrentInstallation(installation: SkillInstallationView, home: NativeProviderHomeState | null): boolean {
@@ -82,13 +91,14 @@ function statusColor(installation: SkillInstallationView): string {
 
 interface SkillDeployDialogProps {
   packageView: SkillPackageView | null;
+  targetCli: ExtensionCli | null;
   open: boolean;
   home: NativeProviderHomeState | null;
   onClose: () => void;
   onDeployed: () => Promise<void>;
 }
 
-function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: SkillDeployDialogProps) {
+function SkillDeployDialog({ packageView, targetCli, open, home, onClose, onDeployed }: SkillDeployDialogProps) {
   const { t } = useI18n();
   const [cli, setCli] = useState<ExtensionCli>("claude");
   const [mode, setMode] = useState<SkillSyncMode>("auto");
@@ -97,11 +107,11 @@ function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: Ski
 
   useEffect(() => {
     if (!open) return;
-    setCli("claude");
+    setCli(targetCli ?? "claude");
     setMode("auto");
     setSaving(false);
     setError(false);
-  }, [open, packageView?.packageId]);
+  }, [open, packageView?.packageId, targetCli]);
 
   const deploy = async () => {
     if (!packageView || !home) return;
@@ -119,9 +129,9 @@ function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: Ski
       toast.success(t("extensions.skills.deploySuccess"));
       await onDeployed();
       onClose();
-    } catch {
+    } catch (cause) {
       setError(true);
-      toast.error(t("extensions.skills.deployFailed"));
+      toast.error(t(skillDeploymentErrorKey(cause)));
     } finally {
       setSaving(false);
     }
@@ -149,12 +159,13 @@ function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: Ski
               <Text size="xs" c="dimmed" className="break-all">{packageView.packagePath}</Text>
             </Card>
           )}
+          {targetCli && <Text size="xs" c="dimmed">{t("extensions.skills.targetCheck", { cli: t(CLI_LABEL_KEYS[targetCli]) })}</Text>}
           {error && <Alert color="red">{t("extensions.skills.deployFailed")}</Alert>}
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
             <Select
               label={t("extensions.skills.cli")}
               value={cli}
-              disabled={saving}
+              disabled={saving || Boolean(targetCli)}
               data={CLI_ORDER.map((item) => ({ value: item, label: t(CLI_LABEL_KEYS[item]) }))}
               onChange={(value) => setCli((value as ExtensionCli) || "claude")}
             />
@@ -167,7 +178,7 @@ function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: Ski
             />
           </SimpleGrid>
           <Text size="xs" c="dimmed" className="break-all">
-            {home?.targets[`${cli}ConfigDir` as keyof typeof home.targets] as string ?? ""}
+            {home ? cli === "codex" ? `${home.homePath}/.agents/skills` : `${home.targets[`${cli}ConfigDir`]}/skills` : ""}
           </Text>
           <Group justify="flex-end" gap="xs">
             <Button variant="light" color="gray" disabled={saving} onClick={onClose}>{t("extensions.import.close")}</Button>
@@ -183,6 +194,8 @@ function SkillDeployDialog({ packageView, open, home, onClose, onDeployed }: Ski
 
 interface GlobalSkillsPanelProps {
   packages: SkillPackageView[];
+  inventory: SkillInventoryEntry[];
+  inventoryComplete: Partial<Record<ExtensionCli, boolean>>;
   installations: SkillInstallationView[];
   loading: boolean;
   searchValue: string;
@@ -193,6 +206,8 @@ interface GlobalSkillsPanelProps {
 /** 全局 Skills 管理：源包、当前目标安装实例和实际同步状态分层展示。 */
 export function GlobalSkillsPanel({
   packages,
+  inventory,
+  inventoryComplete,
   installations,
   loading,
   searchValue,
@@ -204,50 +219,92 @@ export function GlobalSkillsPanel({
   const [importOpen, setImportOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [deployPackage, setDeployPackage] = useState<SkillPackageView | null>(null);
+  const [deployCli, setDeployCli] = useState<ExtensionCli | null>(null);
+  const [selectedSources, setSelectedSources] = useState<Record<string, string>>({});
+  const [working, setWorking] = useState<string | null>(null);
+  const workingRef = useRef(false);
 
   const currentInstallations = useMemo(
     () => installations.filter((installation) => isCurrentInstallation(installation, home)),
     [home, installations],
   );
+  const packageGroups = useMemo(() => groupSkillPackages(packages), [packages]);
   const filteredPackages = useMemo(() => {
     const query = searchValue.trim().toLocaleLowerCase();
-    if (!query) return packages;
-    return packages.filter((packageView) => [
+    const sorted = packageGroups.map(variants => ({
+      ...variants[0],
+      variants,
+      selectedPackage: variants.find(item => item.packageId === selectedSources[variants[0].name])
+        ?? variants.find(item => currentInstallations.some(installation => installation.packageId === item.packageId && installation.status === "active"))
+        ?? variants[0],
+    }));
+    if (!query) return sorted;
+    return sorted.filter((packageView) => [
       packageView.name,
       packageView.description,
       packageView.sourceIdentity,
       packageView.sourceKind,
       packageView.sourceRef,
     ].some((value) => value.toLocaleLowerCase().includes(query)));
-  }, [packages, searchValue]);
+  }, [packageGroups, selectedSources, currentInstallations, searchValue]);
 
   const uninstall = async (installation: SkillInstallationView, packageView: SkillPackageView) => {
-    if (!(await confirm({
-      title: t("extensions.skills.uninstall"),
-      message: t("extensions.skills.uninstallConfirm", { name: packageView.name }),
-      confirmText: t("extensions.skills.uninstall"),
-      danger: true,
-    }))) return;
+    if (workingRef.current || !installation.owned || installation.externalModified) return;
+    workingRef.current = true;
+    setWorking(`${packageView.packageId}:${installation.cli}`);
     try {
-      await uninstallManagedSkill(installation.installationId);
+      if (!(await confirm({
+        title: t("extensions.skills.uninstall"),
+        message: t("extensions.skills.uninstallConfirm", { name: packageView.name }),
+        confirmText: t("extensions.skills.uninstall"),
+        danger: true,
+      }))) return;
+      const result = await uninstallManagedSkill(installation.installationId);
+      if (!result.removed) throw new Error("extensions_skill_external_modified");
       toast.success(t("extensions.skills.uninstallSuccess"));
       await onRefresh();
     } catch {
       toast.error(t("extensions.skills.uninstallFailed"));
+      await onRefresh();
+    } finally {
+      workingRef.current = false; setWorking(null);
     }
   };
 
   const restore = async (installation: SkillInstallationView) => {
+    if (workingRef.current) return;
+    workingRef.current = true; setWorking(`${installation.packageId}:${installation.cli}`);
     try {
       await restoreManagedSkill(installation.installationId);
       toast.success(t("extensions.skills.restoreSuccess"));
       await onRefresh();
     } catch {
       toast.error(t("extensions.skills.restoreFailed"));
+    } finally {
+      workingRef.current = false; setWorking(null);
     }
   };
 
-  const installationsFor = (packageId: string) => currentInstallations.filter((item) => item.packageId === packageId);
+  const installationsFor = (name: string) => {
+    const ids = new Set(packages.filter(item => item.name === name).map(item => item.packageId));
+    return currentInstallations.filter(item => ids.has(item.packageId));
+  };
+
+  // Icon installation uses the existing auto link/copy policy; removal retains confirmation and ownership checks.
+  const toggleSkill = async (packageView: SkillPackageView, cli: ExtensionCli) => {
+    if (!home || workingRef.current) return;
+    const state = skillCliPresentation(installationsFor(packageView.name), cli, inventory, packageView.name, inventoryComplete[cli] === true);
+    if (state.blocked) { setDeployCli(cli); setDeployPackage(packageView); return; }
+    if (state.enabled && state.installation) { await uninstall(state.installation, packageView); return; }
+    workingRef.current = true; setWorking(`${packageView.packageId}:${cli}`);
+    try {
+      await deployManagedSkill({ packageId: packageView.packageId, cli, mode: "auto", homePath: home.homePath,
+        environmentKind: home.identity.environmentKind, environmentId: home.identity.environmentId });
+      toast.success(t("extensions.skills.deploySuccess"));
+      await onRefresh();
+    } catch (cause) { toast.error(t(skillDeploymentErrorKey(cause))); await onRefresh(); }
+    finally { workingRef.current = false; setWorking(null); }
+  };
 
   return (
     <Stack gap="md">
@@ -270,8 +327,11 @@ export function GlobalSkillsPanel({
         </Group>
       </Group>
 
+      <Text size="xs" c="dimmed">{t("extensions.skills.iconHelp")}</Text>
+      <SkillInventoryPanel searchValue={searchValue} homeIdentity={`${home?.identity.identity}:${home?.homePath}`} onChanged={onRefresh} />
+
       <Group gap="xs" wrap="wrap">
-        <Badge variant="light">{t("extensions.skills.packageCount", { count: packages.length })}</Badge>
+        <Badge variant="light">{t("extensions.skills.packageCount", { count: packageGroups.length })}</Badge>
         <Badge variant="light">{t("extensions.skills.installationCount", { count: currentInstallations.length })}</Badge>
         {!home && <Badge color="yellow">{t("extensions.skills.noHome")}</Badge>}
       </Group>
@@ -284,27 +344,58 @@ export function GlobalSkillsPanel({
           <Text size="sm" c="dimmed" className="mt-1">{t("extensions.skills.noPackagesDescription")}</Text>
         </Card>
       ) : (
-        <Stack gap="sm">
-          {filteredPackages.map((packageView) => {
-            const packageInstallations = installationsFor(packageView.packageId);
+        <ExtensionSortableList items={filteredPackages} itemId={item => item.packageId} kind="skills" disabled={loading || Boolean(working)}>
+          {(group, dragHandle) => {
+            const packageView = group.selectedPackage;
+            const packageInstallations = installationsFor(packageView.name);
             return (
-              <Card key={packageView.packageId} withBorder radius="lg" padding="md" className="min-w-0 border-border/70 bg-surface-container-low">
-                <Stack gap="sm">
+              <Card key={group.packageId} withBorder radius="md" padding="sm" className="min-w-0 border-border/70 bg-surface-container-low">
+                <Stack gap={4}>
                   <Group justify="space-between" align="flex-start" wrap="wrap">
-                    <Stack gap={3} miw={0} className="min-w-0">
+                    <Stack gap={3} miw={0} style={{ flex: "1 1 260px" }} className="min-w-0">
                       <Group gap="xs" wrap="wrap">
+                        {dragHandle}
                         <Text fw={650} className="break-words">{packageView.name}</Text>
+                      </Group>
+                      {packageView.description && <Text size="xs" c="dimmed" lineClamp={2} className="break-words">{packageView.description}</Text>}
+                    </Stack>
+                    <Group gap="xs">
+                      {CLI_ORDER.map(cli => {
+                        const state = skillCliPresentation(packageInstallations, cli, inventory, packageView.name, inventoryComplete[cli] === true);
+                        return <ExtensionCliToggle key={cli} cli={cli} enabled={state.enabled}
+                          disabled={!home || loading || Boolean(working)}
+                          busy={working === `${packageView.packageId}:${cli}`}
+                          label={t(state.external.length ? "extensions.skills.iconExternal" : state.blocked ? "extensions.skills.iconCheck" : state.enabled ? "extensions.skills.iconRemove" : "extensions.skills.iconInstall", { cli: t(CLI_LABEL_KEYS[cli]) })}
+                          onClick={() => { void toggleSkill(packageView, cli); }} />;
+                      })}
+                    </Group>
+                  </Group>
+                  {inventory.some(item => item.name === packageView.name && ["agent-compatible", "claude-compatible"].includes(item.sourceKind) && item.status === "present")
+                    && <Text size="xs" c="dimmed">{t("extensions.skills.sharedPresence")}</Text>}
+                  {CLI_ORDER.some(cli => skillCliPresentation(packageInstallations, cli).blocked) && <Text size="xs" c="orange">{t("extensions.skills.inspectDetails")}</Text>}
+                  <details>
+                    <summary className="cursor-pointer text-xs text-on-surface-variant">{t("extensions.skills.details")}</summary>
+                    <Stack gap="sm" mt="sm">
+                      {group.variants.length > 1 && <Select
+                        label={t("extensions.skills.sourceVariant")}
+                        value={packageView.packageId}
+                        disabled={Boolean(working)}
+                        data={group.variants.map(item => ({ value: item.packageId, label: item.sourceIdentity }))}
+                        onChange={value => { if (value) setSelectedSources(current => ({ ...current, [packageView.name]: value })); }}
+                      />}
+
+                      {inventory.filter(item => item.name === packageView.name && !item.managed).map(item =>
+                        <Text key={`${item.cli}:${item.path}`} size="xs" className="break-all">
+                          {t("extensions.skills.externalPath", { cli: t(CLI_LABEL_KEYS[item.cli]), path: item.path })}
+                        </Text>)}
+                      {packageView.description && <Text size="sm" className="break-words">{packageView.description}</Text>}
+                      <Group gap="xs">
                         {packageView.version && <Badge variant="light">{packageView.version}</Badge>}
                         <Badge color="gray">{packageView.sourceKind}</Badge>
+                        <Button size="compact-sm" variant="light" disabled={!home || Boolean(working)} onClick={() => { setDeployCli(null); setDeployPackage(packageView); }}>{t("extensions.skills.advancedDeploy")}</Button>
                       </Group>
-                      <Text size="xs" c="dimmed" className="break-words">{packageView.description || t("extensions.skills.descriptionLabel")}</Text>
-                    </Stack>
-                    <Button size="compact-sm" color="cliPrimary" leftSection={<Download size={15} />} disabled={!home} onClick={() => setDeployPackage(packageView)}>
-                      {t("extensions.skills.deploy")}
-                    </Button>
-                  </Group>
                   <Group gap="xs" wrap="wrap">
-                    <Text size="xs" c="dimmed">{t("extensions.skills.source")}: {packageView.sourceIdentity}</Text>
+                    <Text size="xs" c="dimmed" className="break-all">{t("extensions.skills.source")}: {packageView.sourceIdentity}</Text>
                     {packageView.resolvedCommit && <Text size="xs" c="dimmed">{packageView.resolvedCommit.slice(0, 12)}</Text>}
                   </Group>
                   <Stack gap="xs">
@@ -327,7 +418,7 @@ export function GlobalSkillsPanel({
                           </Stack>
                           <Group gap={4}>
                             {installation.backupPath && (
-                              <Button size="compact-sm" variant="subtle" color="gray" title={t("extensions.skills.restore")} aria-label={t("extensions.skills.restore")} onClick={() => void restore(installation)}>
+                              <Button size="compact-sm" variant="subtle" color="gray" disabled={Boolean(working)} title={t("extensions.skills.restore")} aria-label={t("extensions.skills.restore")} onClick={() => void restore(installation)}>
                                 <ArchiveRestore size={15} />
                               </Button>
                             )}
@@ -337,7 +428,7 @@ export function GlobalSkillsPanel({
                               color="red"
                               title={t("extensions.skills.uninstall")}
                               aria-label={t("extensions.skills.uninstall")}
-                              disabled={!installation.owned || installation.externalModified}
+                              disabled={Boolean(working) || !installation.owned || installation.externalModified}
                               onClick={() => void uninstall(installation, packageView)}
                             >
                               <Trash2 size={15} />
@@ -347,15 +438,18 @@ export function GlobalSkillsPanel({
                       </Card>
                     ))}
                   </Stack>
+                    </Stack>
+                  </details>
                 </Stack>
               </Card>
             );
-          })}
-        </Stack>
+          }}
+        </ExtensionSortableList>
       )}
 
       <SkillDeployDialog
         packageView={deployPackage}
+        targetCli={deployCli}
         open={Boolean(deployPackage)}
         home={home}
         onClose={() => setDeployPackage(null)}
@@ -363,6 +457,7 @@ export function GlobalSkillsPanel({
       />
       <ExtensionImportDialog
         open={importOpen}
+        initialSource={{ sourceKind: "skillDirectory", sourcePath: "" }}
         onClose={() => setImportOpen(false)}
         onApplied={() => void onRefresh()}
       />

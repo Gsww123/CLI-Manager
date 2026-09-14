@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,8 @@ use sqlx::{Connection, Row};
 use uuid::Uuid;
 
 use super::adapters;
-use super::model::{ExtensionCli, McpResource, McpResourceRedacted};
+use super::model::{ExtensionCli, McpResource, McpResourceRedacted, McpTransport};
+use super::project_skill;
 use super::repository;
 use super::skill_deployment::{self, SkillInstallationView, SkillPackageView};
 use super::skill_repository::{self, SkillPackageRecord};
@@ -21,6 +23,8 @@ const MAX_PROVIDER_SETTINGS_BYTES: u64 = 4 * 1024 * 1024;
 const SNAPSHOT_DIR: &str = "project-snapshots";
 const SNAPSHOT_MANIFEST: &str = "manifest.json";
 const LOCAL_ENVIRONMENT_ID: &str = "host";
+const CODEX_PROJECT_PROFILE_PREFIX: &str = "cli-manager-project-";
+const CODEX_PROJECT_PROFILE_MARKER: &str = "# cli-manager-project-profile:";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,6 +156,7 @@ pub(crate) struct ProjectExtensionLaunchPlan {
     pub mcp_config_path: Option<String>,
     pub claude_settings_path: Option<String>,
     pub codex_config_overrides: Vec<String>,
+    pub codex_profile_name: Option<String>,
     pub applied_mcp_ids: Vec<String>,
     pub applied_skill_ids: Vec<String>,
     pub warnings: Vec<String>,
@@ -172,6 +177,12 @@ struct SnapshotManifest {
     policy_revision: i64,
     mcp_ids: Vec<String>,
     skill_ids: Vec<String>,
+    #[serde(default)]
+    codex_profile_name: Option<String>,
+    #[serde(default)]
+    codex_profile_path: Option<String>,
+    #[serde(default)]
+    project_skill_targets: Vec<project_skill::ProjectSkillTarget>,
 }
 
 #[derive(Clone, Debug)]
@@ -211,6 +222,7 @@ struct PolicyContext {
     stored: Vec<StoredPolicy>,
     global_mcp_ids: BTreeMap<String, Vec<String>>,
     global_skill_ids: BTreeMap<String, Vec<String>>,
+    project_path: PathBuf,
 }
 
 // 读取主库；策略与 canonical MCP/Skill 记录必须在同一个应用数据根下解析。
@@ -220,7 +232,7 @@ async fn open_database() -> Result<SqliteConnection, String> {
         fs::create_dir_all(parent)
             .map_err(|_| "extensions_scope_db_parent_create_failed".to_string())?;
     }
-    SqliteConnection::connect_with(
+    let mut connection = SqliteConnection::connect_with(
         &SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
@@ -228,7 +240,9 @@ async fn open_database() -> Result<SqliteConnection, String> {
             .busy_timeout(DB_BUSY_TIMEOUT),
     )
     .await
-    .map_err(|_| "extensions_scope_db_open_failed".to_string())
+    .map_err(|_| "extensions_scope_db_open_failed".to_string())?;
+    super::database::ensure_schema(&mut connection).await?;
+    Ok(connection)
 }
 
 // 校验项目与 Worktree 归属，防止同一路径下不同项目或 Worktree 互相读取策略。
@@ -376,6 +390,7 @@ async fn build_context(request: ProjectExtensionPolicyGetRequest) -> Result<Poli
     };
     let scope_id = worktree_id.unwrap_or(&project_id).to_string();
     validate_scope(&project_id, worktree_id, scope_kind, &scope_id).await?;
+    let project_path = super::scope_path::load(&project_id, worktree_id).await?;
 
     let records = repository::list_mcp_resource_records().await?;
     let packages = skill_repository::list_packages().await?;
@@ -421,6 +436,7 @@ async fn build_context(request: ProjectExtensionPolicyGetRequest) -> Result<Poli
         stored,
         global_mcp_ids,
         global_skill_ids,
+        project_path,
     })
 }
 
@@ -660,10 +676,10 @@ async fn save_policy_rows(
     let now = skill_repository::now_ms();
     for cli in ExtensionCli::all() {
         for kind in [ExtensionPolicyKind::Mcp, ExtensionPolicyKind::Skill] {
-            let (mode, selected_ids) = values
-                .get(&(cli, kind))
-                .cloned()
-                .unwrap_or((ExtensionPolicyMode::Inherit, Vec::new()));
+            // A project dialog edits its configured CLI only; omission must preserve other CLI policies.
+            let Some((mode, selected_ids)) = values.get(&(cli, kind)).cloned() else {
+                continue;
+            };
             if mode == ExtensionPolicyMode::Inherit {
                 sqlx::query(
                     "DELETE FROM extension_scope_policies
@@ -752,6 +768,7 @@ pub(crate) async fn prepare_launch(
         mcp_config_path: None,
         claude_settings_path: None,
         codex_config_overrides: Vec::new(),
+        codex_profile_name: None,
         applied_mcp_ids: mcp.applied_ids.clone(),
         applied_skill_ids: skill.applied_ids.clone(),
         warnings: [mcp.reason.clone(), skill.reason.clone()]
@@ -764,16 +781,14 @@ pub(crate) async fn prepare_launch(
     }
 
     let mcp_resources = resources_for_resolution(&context, &mcp);
-    let mcp_needs_snapshot = mcp.application_status == "applied"
-        && (mcp.mode == ExtensionPolicyMode::Custom || !mcp.effective_ids.is_empty());
-    let skill_needs_snapshot = skill.application_status == "applied"
-        && (skill.mode == ExtensionPolicyMode::Custom || !skill.effective_ids.is_empty());
+    let mcp_needs_snapshot = needs_project_snapshot(&mcp);
+    let skill_needs_snapshot = needs_project_snapshot(&skill);
     if request.cli == ExtensionCli::Claude {
         if mcp_needs_snapshot {
             match adapters::project_native_config_for_launch(request.cli, &mcp_resources) {
                 Ok(content) => {
                     let (snapshot_id, root) =
-                        create_snapshot_root(&request, &context, &mcp, &skill)?;
+                        create_snapshot_root(&request, &context, &mcp, &skill, &[])?;
                     let path = root.join("claude").join("mcp.json");
                     let environment_path = match path_for_environment(&path, &environment_kind) {
                         Ok(value) => value,
@@ -831,6 +846,7 @@ pub(crate) async fn prepare_launch(
             }
         }
     } else if request.cli == ExtensionCli::Codex {
+        let mut project_skill_targets = Vec::new();
         if mcp_needs_snapshot {
             match codex_mcp_overrides(&context, &mcp) {
                 Ok(overrides) => plan.codex_config_overrides.extend(overrides),
@@ -846,8 +862,34 @@ pub(crate) async fn prepare_launch(
             }
         }
         if skill_needs_snapshot && plan.skill_status == "applied" {
-            match codex_skill_override(&context, &skill, &environment_kind) {
-                Ok(override_value) => plan.codex_config_overrides.push(override_value),
+            match project_skill::reject_non_local(&environment_kind).and_then(|_| {
+                project_skill::materialize_local(
+                    &context.project_path,
+                    &context.packages,
+                    &skill.applied_ids,
+                    &project_skill::managed_target_paths(),
+                )
+            }) {
+                Ok(targets) => match codex_skill_override(&context, &targets) {
+                    Ok(override_value) => {
+                        project_skill_targets = targets;
+                        // A custom project set is a whitelist: disable Codex's bundled
+                        // skills as well as every discovered file before enabling the target.
+                        plan.codex_config_overrides
+                            .push("skills.bundled.enabled=false".to_string());
+                        plan.codex_config_overrides.push(override_value);
+                    }
+                    Err(error) => {
+                        project_skill::cleanup_uncommitted(&targets);
+                        plan.skill_status = "error".to_string();
+                        plan.warnings.push(error);
+                        plan.applied_skill_ids = context
+                            .global_skill_ids
+                            .get(request.cli.key())
+                            .cloned()
+                            .unwrap_or_default();
+                    }
+                },
                 Err(error) => {
                     plan.skill_status = "error".to_string();
                     plan.warnings.push(error);
@@ -860,11 +902,66 @@ pub(crate) async fn prepare_launch(
             }
         }
         if !plan.codex_config_overrides.is_empty() {
-            let (snapshot_id, _root) = create_snapshot_root(&request, &context, &mcp, &skill)?;
+            let (snapshot_id, _root) = match create_snapshot_root(
+                &request,
+                &context,
+                &mcp,
+                &skill,
+                &project_skill_targets,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    project_skill::cleanup_uncommitted(&project_skill_targets);
+                    return Err(error);
+                }
+            };
             plan.snapshot_id = Some(snapshot_id);
+            if environment_kind == "local" {
+                let provider_overrides = match (
+                    request.provider_snapshot_id.as_deref(),
+                    request.provider_id.as_deref(),
+                ) {
+                    (Some(snapshot_id), Some(provider_id)) => {
+                        crate::provider::scope::codex_config_overrides_for_snapshot(
+                            snapshot_id,
+                            provider_id,
+                        )
+                        .ok()
+                        .filter(|overrides| !overrides.is_empty())
+                    }
+                    (None, None) => Some(Vec::new()),
+                    _ => None,
+                };
+                if let Some(mut provider_overrides) = provider_overrides {
+                    provider_overrides.extend(plan.codex_config_overrides.iter().cloned());
+                    if let Some(snapshot_id) = plan.snapshot_id.as_deref() {
+                        if let Ok((profile_name, profile_path)) =
+                            write_codex_project_profile(snapshot_id, &provider_overrides)
+                        {
+                            if mark_codex_project_profile(snapshot_id, &profile_name, &profile_path)
+                                .is_ok()
+                            {
+                                plan.codex_profile_name = Some(profile_name);
+                            } else {
+                                let profile_path = profile_path.to_string_lossy().into_owned();
+                                let _ = remove_codex_project_profile(
+                                    snapshot_id,
+                                    &profile_name,
+                                    Some(&profile_path),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(plan)
+}
+
+// Inherited project custom sets (including empty sets) still require isolation; global inheritance does not.
+fn needs_project_snapshot(resolution: &PolicyResolution) -> bool {
+    resolution.application_status == "applied" && resolution.inherited_from != "global"
 }
 
 fn resources_for_resolution(
@@ -878,7 +975,7 @@ fn resources_for_resolution(
         .filter(|record| selected.contains(&record.resource.resource_id))
         .map(|record| {
             let mut resource = record.resource.clone();
-            if resolution.mode == ExtensionPolicyMode::Custom {
+            if needs_project_snapshot(resolution) {
                 resource
                     .enabled_by_cli
                     .insert(resolution.cli.key().to_string(), true);
@@ -895,40 +992,347 @@ fn codex_mcp_overrides(
     let selected = resolution.applied_ids.iter().collect::<BTreeSet<_>>();
     let mut overrides = Vec::new();
     for record in &context.records {
-        if !safe_codex_key(&record.resource.server_key) {
+        let resource = &record.resource;
+        if !safe_codex_key(&resource.server_key) {
             return Err(format!(
                 "extensions_project_codex_server_key_unsupported:{}",
-                record.resource.resource_id
+                resource.resource_id
             ));
         }
-        let enabled = selected.contains(&record.resource.resource_id);
-        overrides.push(format!(
-            "mcp_servers.{}.enabled={enabled}",
-            record.resource.server_key
-        ));
+        let enabled = selected.contains(&resource.resource_id);
+        // Codex only supports stdio and Streamable HTTP. Never create an
+        // enable-only SSE entry: Codex validates every table at startup,
+        // including disabled entries, and reports "invalid transport".
+        if resource.transport == McpTransport::Sse {
+            if enabled {
+                return Err("extensions_project_codex_transport_unsupported".to_string());
+            }
+            continue;
+        }
+        overrides.extend(codex_mcp_resource_overrides(resource, enabled)?);
     }
     Ok(overrides)
 }
 
+// 生成可直接交给 `codex -c` 的完整 MCP 基础字段；仅选中资源携带环境/请求头，避免把禁用项的秘密带入命令行。
+fn codex_mcp_resource_overrides(
+    resource: &McpResource,
+    enabled: bool,
+) -> Result<Vec<String>, String> {
+    if enabled && !resource.secret_refs.is_empty() {
+        return Err("extensions_secret_reference_unresolved".to_string());
+    }
+    let prefix = format!("mcp_servers.{}", resource.server_key);
+    let mut overrides = Vec::new();
+    match resource.transport {
+        McpTransport::Stdio => {
+            let command = resource
+                .command
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "extensions_project_codex_mcp_definition_invalid".to_string())?;
+            overrides.push(format!(
+                "{prefix}.command={}",
+                codex_override_literal(command, "command")?
+            ));
+            let args = resource
+                .args
+                .iter()
+                .enumerate()
+                .map(|(index, value)| codex_override_literal(value, &format!("args[{index}]")))
+                .collect::<Result<Vec<_>, _>>()?;
+            overrides.push(format!("{prefix}.args=[{}]", args.join(",")));
+            if let Some(cwd) = resource.cwd.as_deref() {
+                overrides.push(format!(
+                    "{prefix}.cwd={}",
+                    codex_override_literal(cwd, "cwd")?
+                ));
+            }
+            if enabled {
+                append_codex_map_overrides(&mut overrides, &prefix, "env", &resource.env)?;
+            }
+        }
+        McpTransport::StreamableHttp => {
+            let url = resource
+                .url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "extensions_project_codex_mcp_definition_invalid".to_string())?;
+            overrides.push(format!(
+                "{prefix}.url={}",
+                codex_override_literal(url, "url")?
+            ));
+            if enabled {
+                append_codex_map_overrides(
+                    &mut overrides,
+                    &prefix,
+                    "http_headers",
+                    &resource.headers,
+                )?;
+            }
+        }
+        McpTransport::Sse => {
+            return Err("extensions_project_codex_transport_unsupported".to_string());
+        }
+    }
+    if enabled {
+        if let Some(timeout) = resource.timeout.as_ref() {
+            append_codex_timeout_override(
+                &mut overrides,
+                &prefix,
+                "startup_timeout_sec",
+                timeout.startup_ms,
+            )?;
+            append_codex_timeout_override(
+                &mut overrides,
+                &prefix,
+                "tool_timeout_sec",
+                timeout.request_ms,
+            )?;
+        }
+    }
+    overrides.push(format!("{prefix}.enabled={enabled}"));
+    Ok(overrides)
+}
+
+// `-c` 的嵌套 map 只能通过逐项 dotted override 写入；键名限制避免把用户值解释成另一层 TOML 路径。
+fn append_codex_map_overrides(
+    overrides: &mut Vec<String>,
+    prefix: &str,
+    field: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (key, value) in values {
+        if !safe_codex_key(key) {
+            return Err(format!(
+                "extensions_project_codex_map_key_unsupported:{field}"
+            ));
+        }
+        overrides.push(format!(
+            "{prefix}.{field}.{key}={}",
+            codex_override_literal(value, &format!("{field}.{key}"))?
+        ));
+    }
+    Ok(())
+}
+
+// Codex CLI 的配置覆盖由终端层包在双引号中；与前端命令校验保持同一组 shell 特殊字符禁区。
+fn codex_override_literal(value: &str, field: &str) -> Result<String, String> {
+    if value.chars().any(|ch| {
+        ch.is_control()
+            || matches!(
+                ch,
+                '"' | '%' | '!' | '^' | '&' | '|' | '<' | '>' | '$' | '`'
+            )
+    }) || value.contains("'''")
+    {
+        return Err(format!(
+            "extensions_project_codex_value_unsupported:{field}"
+        ));
+    }
+    Ok(format!("'''{value}'''"))
+}
+
+// Codex timeout 只接受正整数秒；项目启动失败应回退到全局，不发送截断后的错误配置。
+fn append_codex_timeout_override(
+    overrides: &mut Vec<String>,
+    prefix: &str,
+    field: &str,
+    milliseconds: Option<u64>,
+) -> Result<(), String> {
+    let Some(milliseconds) = milliseconds else {
+        return Ok(());
+    };
+    if milliseconds == 0 || milliseconds % 1000 != 0 {
+        return Err("extensions_project_codex_timeout_not_representable".to_string());
+    }
+    overrides.push(format!("{prefix}.{field}={}", milliseconds / 1000));
+    Ok(())
+}
+
 fn codex_skill_override(
     context: &PolicyContext,
-    resolution: &PolicyResolution,
-    environment_kind: &str,
+    targets: &[project_skill::ProjectSkillTarget],
 ) -> Result<String, String> {
-    let selected = resolution.applied_ids.iter().collect::<BTreeSet<_>>();
     let mut entries = Vec::new();
-    for package in &context.packages {
-        let path = path_for_environment(&package.package_path.join("SKILL.md"), environment_kind)?;
-        if path.contains('\'') || path.chars().any(char::is_control) {
-            return Err("extensions_project_codex_skill_path_unsupported".to_string());
-        }
+    for path in project_skill::discovered_codex_skill_paths(&context.project_path)? {
         entries.push(format!(
-            "{{path='{}',enabled={}}}",
-            path,
-            selected.contains(&package.package_id)
+            "{{path={},enabled=false}}",
+            codex_override_literal(&path.to_string_lossy(), "skill.path")?
+        ));
+    }
+    for target in targets {
+        let path = PathBuf::from(&target.path).join("SKILL.md");
+        entries.push(format!(
+            "{{path={},enabled=true}}",
+            codex_override_literal(&path.to_string_lossy(), "skill.project_path",)?
         ));
     }
     Ok(format!("skills.config=[{}]", entries.join(",")))
+}
+
+// 为本机 Codex 项目策略生成唯一 profile 名称；快照 ID 已经过路径校验，可安全进入文件名。
+fn codex_project_profile_name(snapshot_id: &str) -> String {
+    format!("{CODEX_PROJECT_PROFILE_PREFIX}{snapshot_id}")
+}
+
+// 根据受管 profile 名称解析当前默认 Codex 配置文件路径，不接受目录穿越或外部名称。
+fn codex_project_profile_path(profile_name: &str) -> Result<PathBuf, String> {
+    let snapshot_id = profile_name
+        .strip_prefix(CODEX_PROJECT_PROFILE_PREFIX)
+        .filter(|value| valid_snapshot_id(value))
+        .ok_or_else(|| "extensions_project_codex_profile_invalid".to_string())?;
+    let config_dir = crate::provider::home::default_config_root("codex")
+        .ok_or_else(|| "extensions_project_codex_profile_unavailable".to_string())?;
+    Ok(config_dir.join(format!(
+        "{}.config.toml",
+        codex_project_profile_name(snapshot_id)
+    )))
+}
+
+// 项目 profile 只接收 dotted key；值沿用已生成的 TOML 文本，并拒绝换行与控制字符。
+fn validate_codex_profile_override(value: &str) -> Result<&str, String> {
+    let value = value.trim();
+    let (key, toml_value) = value
+        .split_once('=')
+        .ok_or_else(|| "extensions_project_codex_profile_invalid".to_string())?;
+    let key = key.trim();
+    if key.is_empty() || key.split('.').any(|segment| !safe_codex_key(segment)) {
+        return Err("extensions_project_codex_profile_invalid".to_string());
+    }
+    let toml_value = toml_value.trim();
+    if toml_value.is_empty() || toml_value.chars().any(char::is_control) {
+        return Err("extensions_project_codex_profile_invalid".to_string());
+    }
+    Ok(value)
+}
+
+// -c 为了穿过 Windows shell 使用三单引号；写入 TOML 文件时改成正确转义的普通字符串。
+fn normalize_codex_profile_override(value: &str) -> Result<String, String> {
+    let value = validate_codex_profile_override(value)?;
+    let (key, toml_value) = value
+        .split_once('=')
+        .ok_or_else(|| "extensions_project_codex_profile_invalid".to_string())?;
+    let mut normalized = String::new();
+    let mut remaining = toml_value.trim();
+    while let Some(start) = remaining.find("'''") {
+        normalized.push_str(&remaining[..start]);
+        let content_start = start + 3;
+        let end = remaining[content_start..]
+            .find("'''")
+            .ok_or_else(|| "extensions_project_codex_profile_invalid".to_string())?;
+        let content = &remaining[content_start..content_start + end];
+        normalized.push_str(toml_edit::value(content).to_string().trim());
+        remaining = &remaining[content_start + end + 3..];
+    }
+    normalized.push_str(remaining);
+    Ok(format!("{}={normalized}", key.trim()))
+}
+
+// 组合供应商与项目覆盖后先按 TOML 解析，避免把长命令换成同样无法启动的 profile 文件。
+fn codex_profile_content(snapshot_id: &str, overrides: &[String]) -> Result<Vec<u8>, String> {
+    if !valid_snapshot_id(snapshot_id) || overrides.is_empty() {
+        return Err("extensions_project_codex_profile_invalid".to_string());
+    }
+    let mut content = format!("{CODEX_PROJECT_PROFILE_MARKER}{snapshot_id}\n");
+    for override_value in overrides {
+        content.push_str(&normalize_codex_profile_override(override_value)?);
+        content.push('\n');
+    }
+    toml::from_str::<toml::Value>(&content)
+        .map_err(|_| "extensions_project_codex_profile_invalid".to_string())?;
+    Ok(content.into_bytes())
+}
+
+// 在 Codex 默认配置根创建 CLI-Manager 独占文件，不覆盖用户已有的同名 profile。
+fn write_codex_project_profile(
+    snapshot_id: &str,
+    overrides: &[String],
+) -> Result<(String, PathBuf), String> {
+    let profile_name = codex_project_profile_name(snapshot_id);
+    let path = codex_project_profile_path(&profile_name)?;
+    let content = codex_profile_content(snapshot_id, overrides)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|_| "extensions_project_codex_profile_unavailable".to_string())?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|_| "extensions_project_codex_profile_unavailable".to_string())?;
+    if file.write_all(&content).is_err() {
+        let _ = fs::remove_file(&path);
+        return Err("extensions_project_codex_profile_unavailable".to_string());
+    }
+    Ok((profile_name, path))
+}
+
+// 仅接受由本次快照生成的 profile，避免清理时误删用户手工创建的 Codex 配置。
+fn remove_codex_project_profile(
+    snapshot_id: &str,
+    profile_name: &str,
+    profile_path: Option<&str>,
+) -> Result<(), String> {
+    if profile_name != codex_project_profile_name(snapshot_id) {
+        return Err("extensions_project_snapshot_invalid".to_string());
+    }
+    let path = if let Some(profile_path) = profile_path {
+        let path = PathBuf::from(profile_path);
+        let expected_name = format!("{profile_name}.config.toml");
+        if !path.is_absolute()
+            || path.file_name().and_then(|value| value.to_str()) != Some(expected_name.as_str())
+        {
+            return Err("extensions_project_snapshot_invalid".to_string());
+        }
+        path
+    } else {
+        codex_project_profile_path(profile_name)
+            .map_err(|_| "extensions_project_codex_profile_release_failed".to_string())?
+    };
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("extensions_project_codex_profile_release_failed".to_string()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("extensions_project_codex_profile_release_failed".to_string());
+    }
+    let marker = format!("{CODEX_PROJECT_PROFILE_MARKER}{snapshot_id}\n");
+    let bytes = fs::read(&path)
+        .map_err(|_| "extensions_project_codex_profile_release_failed".to_string())?;
+    if !bytes.starts_with(marker.as_bytes()) {
+        return Err("extensions_project_codex_profile_release_conflict".to_string());
+    }
+    fs::remove_file(path).map_err(|_| "extensions_project_codex_profile_release_failed".to_string())
+}
+
+// profile 文件写入后再登记到快照清单，释放与 GC 才会拥有明确的删除边界。
+fn mark_codex_project_profile(
+    snapshot_id: &str,
+    profile_name: &str,
+    profile_path: &Path,
+) -> Result<(), String> {
+    if profile_name != codex_project_profile_name(snapshot_id) {
+        return Err("extensions_project_snapshot_invalid".to_string());
+    }
+    let expected_name = format!("{profile_name}.config.toml");
+    if !profile_path.is_absolute()
+        || profile_path.file_name().and_then(|value| value.to_str()) != Some(expected_name.as_str())
+    {
+        return Err("extensions_project_snapshot_invalid".to_string());
+    }
+    let root = snapshot_root(snapshot_id)?;
+    let bytes = fs::read(root.join(SNAPSHOT_MANIFEST))
+        .map_err(|_| "extensions_project_snapshot_invalid".to_string())?;
+    let mut manifest: SnapshotManifest = serde_json::from_slice(&bytes)
+        .map_err(|_| "extensions_project_snapshot_invalid".to_string())?;
+    if manifest.snapshot_id != snapshot_id {
+        return Err("extensions_project_snapshot_invalid".to_string());
+    }
+    manifest.codex_profile_name = Some(profile_name.to_string());
+    manifest.codex_profile_path = Some(profile_path.to_string_lossy().into_owned());
+    write_manifest(&root, &manifest)
 }
 
 // 没有供应商快照时读取所选环境的原始 Claude settings；不存在时使用空对象，避免项目快照丢失用户设置。
@@ -956,6 +1360,34 @@ fn read_claude_home_settings(context: &PolicyContext) -> Result<Map<String, Valu
     }
 }
 
+// Same-name unselected source variants are harmless; only multiple selected versions are ambiguous.
+fn claude_skill_overrides<'a>(
+    packages: impl IntoIterator<Item = (&'a str, &'a str)>,
+    selected_ids: &[String],
+) -> Result<Map<String, Value>, String> {
+    let selected = selected_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut overrides = Map::new();
+    let mut selected_names = BTreeMap::new();
+    for (id, name) in packages {
+        if selected.contains(id) {
+            if let Some(previous) = selected_names.insert(name, id) {
+                if previous != id {
+                    return Err("extensions_project_skill_name_conflict".to_string());
+                }
+            }
+            overrides.insert(name.to_string(), Value::String("on".to_string()));
+        } else {
+            overrides
+                .entry(name.to_string())
+                .or_insert_with(|| Value::String("off".to_string()));
+        }
+    }
+    Ok(overrides)
+}
+
 fn write_claude_skill_settings(
     request: &ProjectExtensionLaunchRequest,
     context: &PolicyContext,
@@ -966,7 +1398,7 @@ fn write_claude_skill_settings(
     let (snapshot_id, root, owns_snapshot) = if let Some(snapshot_id) = snapshot_id {
         (snapshot_id.clone(), snapshot_root(&snapshot_id)?, false)
     } else {
-        let (snapshot_id, root) = create_snapshot_root(request, context, mcp, resolution)?;
+        let (snapshot_id, root) = create_snapshot_root(request, context, mcp, resolution, &[])?;
         (snapshot_id, root, true)
     };
     let result = (|| {
@@ -980,29 +1412,13 @@ fn write_claude_skill_settings(
         } else {
             read_claude_home_settings(context)?
         };
-        let mut names = BTreeMap::<String, String>::new();
-        for package in &context.packages {
-            if let Some(previous) = names.insert(package.name.clone(), package.package_id.clone()) {
-                if previous != package.package_id {
-                    return Err("extensions_project_skill_name_conflict".to_string());
-                }
-            }
-        }
-        let selected = resolution.applied_ids.iter().collect::<BTreeSet<_>>();
-        let mut overrides = Map::new();
-        for package in &context.packages {
-            overrides.insert(
-                package.name.clone(),
-                Value::String(
-                    if selected.contains(&package.package_id) {
-                        "on"
-                    } else {
-                        "off"
-                    }
-                    .to_string(),
-                ),
-            );
-        }
+        let overrides = claude_skill_overrides(
+            context
+                .packages
+                .iter()
+                .map(|package| (package.package_id.as_str(), package.name.as_str())),
+            &resolution.applied_ids,
+        )?;
         settings.insert("skillOverrides".to_string(), Value::Object(overrides));
         let path = root.join("claude").join("settings.json");
         let bytes = serde_json::to_vec_pretty(&Value::Object(settings))
@@ -1021,6 +1437,7 @@ fn create_snapshot_root(
     context: &PolicyContext,
     mcp: &PolicyResolution,
     skill: &PolicyResolution,
+    project_skill_targets: &[project_skill::ProjectSkillTarget],
 ) -> Result<(String, PathBuf), String> {
     let snapshot_id = Uuid::new_v4().to_string();
     let root = snapshot_root(&snapshot_id)?;
@@ -1053,6 +1470,9 @@ fn create_snapshot_root(
             policy_revision: mcp.revision.max(skill.revision),
             mcp_ids: mcp.applied_ids.clone(),
             skill_ids: skill.applied_ids.clone(),
+            codex_profile_name: None,
+            codex_profile_path: None,
+            project_skill_targets: project_skill_targets.to_vec(),
         },
     );
     if let Err(error) = manifest_result {
@@ -1254,6 +1674,16 @@ pub(crate) fn release_snapshot(snapshot_id: String) -> Result<(), String> {
     if manifest.version != 1 || manifest.snapshot_id != snapshot_id {
         return Err("extensions_project_snapshot_invalid".to_string());
     }
+    if manifest.cli == ExtensionCli::Codex {
+        if let Some(profile_name) = manifest.codex_profile_name.as_deref() {
+            remove_codex_project_profile(
+                snapshot_id,
+                profile_name,
+                manifest.codex_profile_path.as_deref(),
+            )?;
+        }
+    }
+    project_skill::release_targets(snapshot_id, &manifest.project_skill_targets)?;
     fs::remove_dir_all(root).map_err(|_| "extensions_project_snapshot_release_failed".to_string())
 }
 
@@ -1298,6 +1728,105 @@ pub(crate) fn garbage_collect_snapshots(active_snapshot_ids: Vec<String>) -> Res
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn saving_one_cli_preserves_other_cli_policies() {
+        use sqlx::Connection;
+        let mut connection = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE extension_scope_policies (
+            scope_kind TEXT, scope_id TEXT, project_id TEXT, cli TEXT, extension_kind TEXT,
+            mode TEXT, selected_ids_json TEXT, revision INTEGER, created_at INTEGER, updated_at INTEGER,
+            PRIMARY KEY(scope_kind, scope_id, cli, extension_kind))")
+            .execute(&mut connection).await.unwrap();
+        let selected = (ExtensionPolicyMode::Custom, vec!["original".to_string()]);
+        let initial = BTreeMap::from([
+            (
+                (ExtensionCli::Claude, ExtensionPolicyKind::Mcp),
+                selected.clone(),
+            ),
+            ((ExtensionCli::Codex, ExtensionPolicyKind::Mcp), selected),
+        ]);
+        save_policy_rows(
+            &mut connection,
+            ExtensionScopeKind::Project,
+            "p",
+            "p",
+            &initial,
+        )
+        .await
+        .unwrap();
+        let changes = BTreeMap::from([(
+            (ExtensionCli::Claude, ExtensionPolicyKind::Mcp),
+            (ExtensionPolicyMode::Inherit, Vec::new()),
+        )]);
+        save_policy_rows(
+            &mut connection,
+            ExtensionScopeKind::Project,
+            "p",
+            "p",
+            &changes,
+        )
+        .await
+        .unwrap();
+        let rows =
+            sqlx::query("SELECT cli, selected_ids_json, revision FROM extension_scope_policies")
+                .fetch_all(&mut connection)
+                .await
+                .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<String, _>("cli"), "codex");
+        assert_eq!(
+            rows[0].get::<String, _>("selected_ids_json"),
+            r#"["original"]"#
+        );
+        assert_eq!(rows[0].get::<i64, _>("revision"), 1);
+    }
+
+    #[test]
+    fn inherited_empty_project_sets_require_snapshot_but_global_sets_do_not() {
+        let mut resolution = PolicyResolution {
+            scope_kind: ExtensionScopeKind::Worktree,
+            scope_id: "w".into(),
+            cli: ExtensionCli::Claude,
+            kind: ExtensionPolicyKind::Mcp,
+            mode: ExtensionPolicyMode::Inherit,
+            selected_ids: vec![],
+            effective_ids: vec![],
+            applied_ids: vec![],
+            inherited_from: "project".into(),
+            revision: 1,
+            capability_status: "supported".into(),
+            application_status: "applied".into(),
+            reason: None,
+        };
+        assert!(needs_project_snapshot(&resolution));
+        resolution.inherited_from = "global".into();
+        resolution.effective_ids = vec!["global".into()];
+        assert!(!needs_project_snapshot(&resolution));
+        resolution.inherited_from = "project".into();
+        resolution.application_status = "error".into();
+        assert!(!needs_project_snapshot(&resolution));
+    }
+
+    #[test]
+    fn unselected_duplicate_skill_sources_do_not_break_project_launch() {
+        let packages = [("a", "search"), ("b", "search"), ("c", "doc")];
+        let result = claude_skill_overrides(packages, &["c".to_string()]).unwrap();
+        assert_eq!(result["search"], "off");
+        assert_eq!(result["doc"], "on");
+        for selected in ["a", "b"] {
+            let result = claude_skill_overrides(packages, &[selected.to_string()]).unwrap();
+            assert_eq!(result["search"], "on");
+        }
+        assert!(claude_skill_overrides(packages, &[])
+            .unwrap()
+            .values()
+            .all(|value| value == "off"));
+        assert_eq!(
+            claude_skill_overrides(packages, &["a".to_string(), "b".to_string()]).unwrap_err(),
+            "extensions_project_skill_name_conflict"
+        );
+    }
+
     #[test]
     fn wsl_path_conversion_keeps_spaces_and_unicode() {
         assert_eq!(
@@ -1318,6 +1847,144 @@ mod tests {
         assert!(safe_codex_key("server_name-1"));
         assert!(!safe_codex_key("server.name"));
         assert!(!safe_codex_key("server name"));
+    }
+
+    fn test_mcp_resource(
+        server_key: &str,
+        transport: McpTransport,
+        command: Option<&str>,
+        url: Option<&str>,
+    ) -> McpResource {
+        McpResource {
+            schema_version: 1,
+            resource_id: format!("mcp-{server_key}"),
+            server_key: server_key.to_string(),
+            name: server_key.to_string(),
+            transport,
+            command: command.map(str::to_string),
+            args: Vec::new(),
+            cwd: None,
+            url: url.map(str::to_string),
+            env: BTreeMap::new(),
+            headers: BTreeMap::new(),
+            secret_refs: BTreeMap::new(),
+            timeout: None,
+            per_cli_extensions: BTreeMap::new(),
+            enabled_by_cli: BTreeMap::new(),
+            source: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn codex_project_mcp_overrides_include_a_valid_transport() {
+        let mut stdio = test_mcp_resource("local_server", McpTransport::Stdio, Some("node"), None);
+        stdio.args.push("server.js".to_string());
+        let stdio_overrides = codex_mcp_resource_overrides(&stdio, true).unwrap();
+        assert!(
+            stdio_overrides.contains(&"mcp_servers.local_server.command='''node'''".to_string())
+        );
+        assert!(stdio_overrides
+            .contains(&"mcp_servers.local_server.args=['''server.js''']".to_string()));
+        assert!(stdio_overrides.contains(&"mcp_servers.local_server.enabled=true".to_string()));
+
+        let http = test_mcp_resource(
+            "exa_web_search",
+            McpTransport::StreamableHttp,
+            None,
+            Some("https://mcp.exa.ai/mcp"),
+        );
+        let http_overrides = codex_mcp_resource_overrides(&http, true).unwrap();
+        assert!(http_overrides
+            .contains(&"mcp_servers.exa_web_search.url='''https://mcp.exa.ai/mcp'''".to_string()));
+        assert!(http_overrides.contains(&"mcp_servers.exa_web_search.enabled=true".to_string()));
+        assert!(!http_overrides
+            .iter()
+            .any(|item| item.contains(".transport=") || item.contains(".type=")));
+    }
+
+    #[test]
+    fn codex_project_mcp_overrides_reject_unresolved_or_unsupported_resources() {
+        let mut secret =
+            test_mcp_resource("secret_server", McpTransport::Stdio, Some("node"), None);
+        secret
+            .secret_refs
+            .insert("TOKEN".to_string(), "env:TOKEN".to_string());
+        assert_eq!(
+            codex_mcp_resource_overrides(&secret, true).unwrap_err(),
+            "extensions_secret_reference_unresolved"
+        );
+
+        let sse = test_mcp_resource(
+            "legacy_sse",
+            McpTransport::Sse,
+            None,
+            Some("https://example.test"),
+        );
+        assert_eq!(
+            codex_mcp_resource_overrides(&sse, true).unwrap_err(),
+            "extensions_project_codex_transport_unsupported"
+        );
+    }
+
+    #[test]
+    fn codex_project_profile_combines_provider_and_extension_overrides_as_valid_toml() {
+        let snapshot_id = "12345678-1234-1234-1234-123456789abc";
+        let content = codex_profile_content(
+            snapshot_id,
+            &[
+                "model_provider='cli_manager_scope'".to_string(),
+                "model_providers.cli_manager_scope.env_key='CLI_MANAGER_PROVIDER_KEY'".to_string(),
+                "mcp_servers.exa_web_search.url='''https://mcp.exa.ai/mcp'''".to_string(),
+                "mcp_servers.exa_web_search.enabled=true".to_string(),
+                "skills.bundled.enabled=false".to_string(),
+                "skills.config=[{path='C:/skills/doc/SKILL.md',enabled=true}]".to_string(),
+            ],
+        )
+        .unwrap();
+        let parsed = toml::from_slice::<toml::Value>(&content).unwrap();
+        assert_eq!(
+            parsed.get("model_provider").and_then(toml::Value::as_str),
+            Some("cli_manager_scope")
+        );
+        assert_eq!(
+            parsed
+                .get("mcp_servers")
+                .and_then(|value| value.get("exa_web_search"))
+                .and_then(|value| value.get("url"))
+                .and_then(toml::Value::as_str),
+            Some("https://mcp.exa.ai/mcp")
+        );
+        assert_eq!(
+            parsed
+                .get("mcp_servers")
+                .and_then(|value| value.get("exa_web_search"))
+                .and_then(|value| value.get("enabled"))
+                .and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            parsed
+                .get("skills")
+                .and_then(|value| value.get("bundled"))
+                .and_then(|value| value.get("enabled"))
+                .and_then(toml::Value::as_bool),
+            Some(false)
+        );
+        assert!(content
+            .starts_with(b"# cli-manager-project-profile:12345678-1234-1234-1234-123456789abc\n"));
+    }
+
+    #[test]
+    fn codex_project_profile_rejects_invalid_override_keys() {
+        assert_eq!(
+            codex_profile_content(
+                "12345678-1234-1234-1234-123456789abc",
+                &["mcp_servers.exa web.url='''https://example.test'''".to_string()],
+            )
+            .unwrap_err(),
+            "extensions_project_codex_profile_invalid"
+        );
     }
 
     #[test]

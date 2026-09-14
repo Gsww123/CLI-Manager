@@ -75,19 +75,32 @@ pub(crate) async fn get_mcp_resource_record(
 
 // 以短 BEGIN IMMEDIATE 事务保存完整规范 JSON，避免并发读改写覆盖并递增 revision。
 pub(crate) async fn upsert_mcp_resource(
-    resource: McpResource,
+    mut resource: McpResource,
 ) -> Result<McpResourceRedacted, String> {
-    let issues = validate_resource(&resource);
-    if !issues.is_empty() {
-        return Err(format!("extensions_invalid_resource:{}", issues[0].code));
-    }
-    let definition_json = serde_json::to_string(&resource)
-        .map_err(|_| "extensions_definition_serialize_failed".to_string())?;
     let mut connection = open_database().await?;
     begin_immediate(&mut connection).await?;
-
-    let result =
-        upsert_mcp_resource_in_transaction(&mut connection, &resource, &definition_json).await;
+    let result = async {
+        let existing: Option<String> = sqlx::query_scalar(
+            "SELECT definition_json FROM extension_mcp_resources WHERE resource_id = ?",
+        )
+        .bind(&resource.resource_id)
+        .fetch_optional(&mut connection)
+        .await
+        .map_err(|error| database_error("extensions_mcp_get_failed", error))?;
+        if let Some(existing) = existing {
+            let original: McpResource =
+                serde_json::from_str(&existing).map_err(|_| "extensions_storage_corrupt")?;
+            resource = super::editing::preserve_secrets(resource.clone(), &original)?;
+        }
+        let issues = validate_resource(&resource);
+        if !issues.is_empty() {
+            return Err(format!("extensions_invalid_resource:{}", issues[0].code));
+        }
+        let definition_json = serde_json::to_string(&resource)
+            .map_err(|_| "extensions_definition_serialize_failed")?;
+        upsert_mcp_resource_in_transaction(&mut connection, &resource, &definition_json).await
+    }
+    .await;
     match result {
         Ok(()) => match commit(&mut connection).await {
             Ok(()) => Ok(redact_resource(&resource)),
@@ -149,6 +162,75 @@ pub(crate) async fn set_mcp_resource_enabled(
             Err(error)
         }
     }
+}
+
+// 在已持有写锁的事务内检查 ID/serverKey 冲突并执行插入或更新。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpSelectionItem {
+    resource_id: String,
+    enabled_by_cli: std::collections::BTreeMap<String, bool>,
+}
+
+// 一次显式操作的显示基线原子入库：只更新布尔开关，保留秘密；失败整批回滚。
+pub(crate) async fn set_mcp_selection(
+    items: Vec<McpSelectionItem>,
+    home_identity: String,
+) -> Result<Vec<McpResourceRedacted>, String> {
+    if items.len() > 5000 {
+        return Err("extensions_selection_too_large".into());
+    }
+    let mut connection = open_database().await?;
+    begin_immediate(&mut connection).await?;
+    let result = async {
+        let updated = apply_mcp_selection_in_transaction(&mut connection, items).await?;
+        if crate::provider::home::active()?.identity.identity != home_identity {
+            return Err("extensions_native_preview_changed".into());
+        }
+        commit(&mut connection).await?;
+        Ok(updated)
+    }
+    .await;
+    if result.is_err() {
+        rollback(&mut connection).await;
+    }
+    result
+}
+
+// 调用者必须已持有写事务，失败由外层统一回滚，便于验证真实 SQL 的原子性。
+async fn apply_mcp_selection_in_transaction(
+    connection: &mut SqliteConnection,
+    items: Vec<McpSelectionItem>,
+) -> Result<Vec<McpResourceRedacted>, String> {
+    let mut updated = Vec::new();
+    for item in items {
+        if item
+            .enabled_by_cli
+            .keys()
+            .any(|key| !["claude", "codex", "grok"].contains(&key.as_str()))
+        {
+            return Err("extensions_selection_invalid".to_string());
+        }
+        let json: String = sqlx::query_scalar(
+            "SELECT definition_json FROM extension_mcp_resources WHERE resource_id = ?",
+        )
+        .bind(&item.resource_id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|error| database_error("extensions_mcp_get_failed", error))?
+        .ok_or("extensions_mcp_not_found")?;
+        let mut resource: McpResource =
+            serde_json::from_str(&json).map_err(|_| "extensions_storage_corrupt")?;
+        resource.enabled_by_cli.extend(item.enabled_by_cli);
+        if !validate_resource(&resource).is_empty() {
+            return Err("extensions_storage_corrupt".into());
+        }
+        let json = serde_json::to_string(&resource)
+            .map_err(|_| "extensions_definition_serialize_failed")?;
+        upsert_mcp_resource_in_transaction(&mut *connection, &resource, &json).await?;
+        updated.push(redact_resource(&resource));
+    }
+    Ok(updated)
 }
 
 // 在已持有写锁的事务内检查 ID/serverKey 冲突并执行插入或更新。
@@ -294,9 +376,11 @@ async fn open_database() -> Result<SqliteConnection, String> {
         .create_if_missing(true)
         .foreign_keys(true)
         .busy_timeout(DB_BUSY_TIMEOUT);
-    SqliteConnection::connect_with(&options)
+    let mut connection = SqliteConnection::connect_with(&options)
         .await
-        .map_err(|error| database_error("extensions_db_open_failed", error))
+        .map_err(|error| database_error("extensions_db_open_failed", error))?;
+    super::database::ensure_schema(&mut connection).await?;
+    Ok(connection)
 }
 
 // 主数据库通常已由启动阶段创建；此处只确保命令单独调用时父目录存在。
@@ -403,6 +487,60 @@ mod tests {
     use crate::extensions::model::{derive_resource_id, McpTransport};
 
     static NEXT_TEST_DATABASE: AtomicU64 = AtomicU64::new(0);
+
+    #[tokio::test]
+    async fn selection_preserves_secrets_and_rolls_back_the_entire_batch() {
+        let mut connection = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        create_test_schema(&mut connection).await;
+        let mut resource = test_resource("demo", "Demo");
+        resource.env.insert("TOKEN".into(), "secret-value".into());
+        resource.enabled_by_cli.insert("codex".into(), true);
+        let original = serde_json::to_string(&resource).unwrap();
+        upsert_mcp_resource_in_transaction(&mut connection, &resource, &original)
+            .await
+            .unwrap();
+        let selection = || McpSelectionItem {
+            resource_id: resource.resource_id.clone(),
+            enabled_by_cli: BTreeMap::from([("claude".into(), false)]),
+        };
+        begin_immediate(&mut connection).await.unwrap();
+        let result = apply_mcp_selection_in_transaction(
+            &mut connection,
+            vec![
+                selection(),
+                McpSelectionItem {
+                    resource_id: "missing".into(),
+                    enabled_by_cli: BTreeMap::new(),
+                },
+            ],
+        )
+        .await;
+        assert!(result.is_err());
+        rollback(&mut connection).await;
+        let after: String =
+            sqlx::query_scalar("SELECT definition_json FROM extension_mcp_resources")
+                .fetch_one(&mut connection)
+                .await
+                .unwrap();
+        assert_eq!(after, original);
+        begin_immediate(&mut connection).await.unwrap();
+        let result = apply_mcp_selection_in_transaction(&mut connection, vec![selection()])
+            .await
+            .unwrap();
+        commit(&mut connection).await.unwrap();
+        assert!(!serde_json::to_string(&result)
+            .unwrap()
+            .contains("secret-value"));
+        let after: String =
+            sqlx::query_scalar("SELECT definition_json FROM extension_mcp_resources")
+                .fetch_one(&mut connection)
+                .await
+                .unwrap();
+        let stored: McpResource = serde_json::from_str(&after).unwrap();
+        assert_eq!(stored.env["TOKEN"], "secret-value");
+        assert_eq!(stored.enabled_by_cli["claude"], false);
+        assert_eq!(stored.enabled_by_cli["codex"], true);
+    }
 
     // 构造不含秘密字段的最小合法 stdio 资源，供仓储事务测试复用。
     fn test_resource(server_key: &str, name: &str) -> McpResource {

@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { trackMcpMutation } from "../state/mcpPendingStore";
+import { MCP_CLIS } from "../lib/mcpPending";
 
 import type {
   ExtensionImportApplyRequest,
@@ -27,7 +29,9 @@ export function previewExtensionImport(
 export function applyExtensionImport(
   request: ExtensionImportApplyRequest,
 ): Promise<ExtensionImportResult> {
-  return invoke<ExtensionImportResult>("extensions_import_apply", { request });
+  return trackMcpMutation(MCP_CLIS,
+    () => invoke<ExtensionImportResult>("extensions_import_apply", { request }),
+    result => result.items.some(item => item.kind === "mcp" && ["imported", "updated"].includes(item.status)));
 }
 
 /** 读取应用数据中的完整 Skill 包目录。 */

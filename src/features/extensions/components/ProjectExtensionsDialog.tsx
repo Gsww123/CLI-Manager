@@ -5,6 +5,7 @@ import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../../../shared/ui/dialog";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
+import { getProviderSwitchAppType } from "../../providers/api/providerSwitching";
 import type { Project, WorktreeRecord } from "../../../shared/types/index";
 import type {
   CapabilityStatus,
@@ -20,6 +21,7 @@ import {
   getProjectExtensionPolicy,
   saveProjectExtensionPolicy,
 } from "../api/projectPolicy";
+import { groupSkillPackages } from "../lib/listPresentation";
 
 type ExtensionKind = ExtensionPolicyKind;
 type DraftPolicy = { mode: ExtensionPolicyMode; selectedIds: string[] };
@@ -124,7 +126,8 @@ interface ProjectExtensionsDialogProps {
 /** 项目/Worktree扩展策略编辑器；只保存策略，不改写 CLI 原生项目配置。 */
 export function ProjectExtensionsDialog({ project, worktree, open, onClose }: ProjectExtensionsDialogProps) {
   const { t } = useI18n();
-  const [activeCli, setActiveCli] = useState<ExtensionCli>("claude");
+  const projectAppType = project ? getProviderSwitchAppType(project) : null;
+  const activeCli: ExtensionCli | null = projectAppType === "grokbuild" ? "grok" : projectAppType;
   const [activeKind, setActiveKind] = useState<ExtensionKind>("mcp");
   const [searchValue, setSearchValue] = useState("");
   const [response, setResponse] = useState<ProjectExtensionPolicyResponse | null>(null);
@@ -144,7 +147,7 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
   const hasWslIdentity = environment.kind !== "wsl" || Boolean(environment.id);
 
   useEffect(() => {
-    if (!open || !project) return;
+    if (!open || !project || !activeCli) return;
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(false);
@@ -180,25 +183,25 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
       .finally(() => {
         if (requestId === requestIdRef.current) setLoading(false);
       });
-  }, [environment.id, environment.kind, open, project, targetKey, worktree]);
+  }, [activeCli, environment.id, environment.kind, open, project, targetKey, worktree]);
 
-  const currentDraft = draftPolicies[policyKey(activeCli, activeKind)];
-  const currentPolicy = policyFor(response, activeCli, activeKind);
-  const parentPolicy = policyFor(parentResponse, activeCli, activeKind);
-  const forcedGlobalOnly = isSshTarget || !hasWslIdentity;
+  const currentDraft = activeCli ? draftPolicies[policyKey(activeCli, activeKind)] : null;
+  const currentPolicy = activeCli ? policyFor(response, activeCli, activeKind) : null;
+  const parentPolicy = activeCli ? policyFor(parentResponse, activeCli, activeKind) : null;
+  const forcedGlobalOnly = !activeCli || isSshTarget || !hasWslIdentity;
   const capabilityStatus: CapabilityStatus = forcedGlobalOnly
     ? "globalOnly"
     : currentPolicy?.capabilityStatus ?? "unknown";
   const applicationStatus = forcedGlobalOnly
     ? "globalOnly"
     : currentPolicy?.applicationStatus ?? "error";
-  const globalIds = activeKind === "mcp"
+  const globalIds = !activeCli ? [] : activeKind === "mcp"
     ? response?.globalMcpIds[activeCli] ?? []
     : response?.globalSkillIds[activeCli] ?? [];
   const availableIds = activeKind === "mcp"
     ? response?.resources.map((resource) => resource.resourceId) ?? []
     : response?.packages.map((packageView) => packageView.packageId) ?? [];
-  const effectiveIds = response && currentDraft
+  const effectiveIds = response && currentDraft && activeCli
     ? effectiveForDraft(response, parentResponse, currentDraft, activeCli, activeKind)
     : [];
   const invalidIds = effectiveIds.filter((id) => !availableIds.includes(id));
@@ -213,22 +216,28 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
         .filter((resource) => !query || [resource.name, resource.serverKey, resource.resourceId, resource.source?.label ?? ""].some((value) => itemMatches(value, query)))
         .map((resource) => ({
           id: resource.resourceId,
+          ids: [resource.resourceId],
           name: resource.name,
           detail: resource.serverKey,
           source: resource.source?.label || resource.source?.kind || t("extensions.mcp.noSource"),
         }));
     }
-    return response.packages
-      .filter((packageView) => !query || [packageView.name, packageView.description, packageView.packageId, packageView.sourceIdentity].some((value) => itemMatches(value, query)))
-      .map((packageView) => ({
-        id: packageView.packageId,
-        name: packageView.name,
-        detail: packageView.version || packageView.description,
-        source: packageView.sourceIdentity,
-      }));
-  }, [activeKind, query, response, t]);
+    return groupSkillPackages(response.packages)
+      .filter((variants) => !query || variants.some((packageView) => [packageView.name, packageView.description, packageView.packageId, packageView.sourceIdentity].some((value) => itemMatches(value, query))))
+      .map((variants) => {
+        const selectedPackage = variants.find((packageView) => effectiveIds.includes(packageView.packageId)) ?? variants[0];
+        return {
+          id: variants[0].packageId,
+          ids: variants.map((packageView) => packageView.packageId),
+          name: selectedPackage.name,
+          detail: selectedPackage.version || selectedPackage.description,
+          source: selectedPackage.sourceIdentity,
+        };
+      });
+  }, [activeKind, effectiveIds, query, response, t]);
 
   const updateDraft = (update: Partial<DraftPolicy>) => {
+    if (!activeCli || forcedGlobalOnly || saving) return;
     setDraftPolicies((current) => ({
       ...current,
       [policyKey(activeCli, activeKind)]: {
@@ -238,18 +247,21 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
     }));
   };
 
-  const toggleSelection = (id: string) => {
-    if (!editableSelection) return;
+  const toggleSelection = (ids: string[]) => {
+    if (!editableSelection || !currentDraft) return;
     const selected = new Set(currentDraft.selectedIds);
-    if (selected.has(id)) selected.delete(id);
-    else selected.add(id);
+    if (ids.some((id) => selected.has(id))) {
+      ids.forEach((id) => selected.delete(id));
+    } else if (ids[0]) {
+      selected.add(ids[0]);
+    }
     updateDraft({ selectedIds: Array.from(selected) });
   };
 
   const save = async () => {
-    if (!project || !response || !currentDraft || saving || forcedGlobalOnly) return;
+    if (!activeCli || !project || !response || !currentDraft || saving || forcedGlobalOnly) return;
     setSaving(true);
-    const policies = CLI_ORDER.flatMap((cli) => KIND_ORDER.map((kind) => {
+    const policies = [activeCli].flatMap((cli) => KIND_ORDER.map((kind) => {
       const draft = draftPolicies[policyKey(cli, kind)];
       return {
         cli,
@@ -281,7 +293,7 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
-      <DialogContent className="flex max-h-[92vh] w-[calc(100vw-2rem)] max-w-5xl flex-col overflow-hidden p-0" showCloseButton={!saving}>
+      <DialogContent className="flex h-[92vh] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col overflow-hidden p-0" showCloseButton={!saving}>
         <div className="border-b border-border/70 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3 pr-5">
             <div className="min-w-0">
@@ -300,16 +312,7 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="mb-3 rounded-lg border border-border/60 bg-surface-container-low/60 px-3 py-2 text-xs text-text-muted">
-            <span className="font-medium text-text-secondary">{t("extensions.project.environment")}</span>
-            <span className="mx-1">·</span>
-            <span>{environment.kind === "wsl" ? t("extensions.environment.wsl") : environment.kind === "ssh" ? t("extensions.project.ssh") : t("extensions.environment.local")}</span>
-            {environment.id && <><span className="mx-1">·</span><span>{environment.id}</span></>}
-            <span className="mx-1">·</span>
-            <span>{scopeKind === "worktree" ? t("extensions.project.scopeWorktree") : t("extensions.project.scopeProject")}</span>
-          </div>
-
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
           {(isSshTarget || !hasWslIdentity) && (
             <div role="alert" className="mb-3 flex gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -323,20 +326,12 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
             </div>
           )}
 
-          <div className="mb-3 grid gap-2 sm:grid-cols-3" role="tablist" aria-label={t("extensions.project.cli")}>
-            {CLI_ORDER.map((cli) => (
-              <button
-                key={cli}
-                type="button"
-                role="tab"
-                aria-selected={activeCli === cli}
-                className={`rounded-lg border px-3 py-2 text-left text-sm transition ${activeCli === cli ? "border-primary bg-primary/10 text-text-primary" : "border-border/60 text-text-secondary hover:bg-surface-container-low"}`}
-                onClick={() => setActiveCli(cli)}
-              >
-                {t(CLI_LABEL_KEYS[cli])}
-              </button>
-            ))}
-          </div>
+          {!activeCli ? (
+            <div role="alert" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+              {t("extensions.project.unsupportedCli", { cli: project?.cli_tool || "—" })}
+            </div>
+          ) : <>
+          <p className="mb-3 text-xs text-text-muted">{t("extensions.project.boundCli", { cli: t(CLI_LABEL_KEYS[activeCli]) })}</p>
 
           <div className="mb-3 grid gap-2 sm:grid-cols-2" role="tablist" aria-label={t("extensions.project.kind")}>
             {KIND_ORDER.map((kind) => (
@@ -362,8 +357,8 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
             {applicationStatus === "error" && <span className="text-text-muted">{t("extensions.project.applicationError")}</span>}
           </div>
 
-          <div className="grid min-h-[22rem] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.7fr)]">
-            <section className="min-w-0 rounded-xl border border-border/70 bg-surface-container-low/35 p-3">
+          <div className="grid min-h-0 flex-1 auto-rows-fr gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.7fr)]">
+            <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface-container-low/35 p-3">
               <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-text-primary">{t("extensions.project.policy")}</h3>
@@ -405,18 +400,18 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
                   {activeKind === "mcp" ? t("extensions.project.noMcp") : t("extensions.project.noSkills")}
                 </div>
               ) : (
-                <div className="max-h-[23rem] space-y-2 overflow-y-auto pr-1">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                   {resources.map((resource) => {
                     const selected = forcedGlobalOnly || currentDraft?.mode === "inherit"
-                      ? effectiveIds.includes(resource.id)
-                      : currentDraft?.selectedIds.includes(resource.id) ?? false;
+                      ? resource.ids.some((id) => effectiveIds.includes(id))
+                      : resource.ids.some((id) => currentDraft?.selectedIds.includes(id) ?? false);
                     return (
                       <label key={resource.id} className={`flex min-w-0 gap-3 rounded-lg border px-3 py-2 ${editableSelection ? "cursor-pointer hover:bg-surface-container-low" : "cursor-default"} border-border/60`}>
                         <input
                           type="checkbox"
                           checked={selected}
                           disabled={!editableSelection}
-                          onChange={() => toggleSelection(resource.id)}
+                          onChange={() => toggleSelection(resource.ids)}
                           className="mt-1 h-4 w-4 shrink-0 accent-primary"
                           aria-label={resource.name}
                         />
@@ -432,7 +427,7 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
               )}
             </section>
 
-            <aside className="rounded-xl border border-border/70 bg-surface-container-low/35 p-3">
+            <aside className="min-h-0 overflow-y-auto rounded-xl border border-border/70 bg-surface-container-low/35 p-3">
               <h3 className="text-sm font-semibold text-text-primary">{t("extensions.project.preview")}</h3>
               <div className="mt-3 space-y-2 text-xs">
                 <div className="flex items-center justify-between gap-3"><span className="text-text-muted">{t("extensions.project.globalState")}</span><span className="font-medium text-text-primary">{globalIds.length}</span></div>
@@ -458,6 +453,7 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
               </div>
             </aside>
           </div>
+          </>}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border/60 bg-surface-container-low/35 px-5 py-3">

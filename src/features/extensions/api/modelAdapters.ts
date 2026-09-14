@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { trackMcpMutation } from "../state/mcpPendingStore";
+import { MCP_CLIS } from "../lib/mcpPending";
+import { getActiveNativeProviderHome } from "../../settings/api/nativeProviderHome";
 
 import type {
   ExtensionCli,
@@ -48,7 +51,7 @@ export function getManagedMcpResource(resourceId: string): Promise<McpResourceRe
 
 /** 保存规范 MCP 资源；实际校验与 revision 处理由 Rust 仓储负责。 */
 export function upsertManagedMcpResource(resource: McpResource): Promise<McpResourceRedacted> {
-  return invoke<McpResourceRedacted>("extensions_mcp_upsert", { resource });
+  return trackMcpMutation(MCP_CLIS, () => invoke<McpResourceRedacted>("extensions_mcp_upsert", { resource }));
 }
 
 /** 只更新一个 CLI 的启用开关，避免脱敏资源回写时覆盖受保护字段。 */
@@ -57,10 +60,32 @@ export function setManagedMcpResourceEnabled(
   cli: ExtensionCli,
   enabled: boolean,
 ): Promise<McpResourceRedacted> {
-  return invoke<McpResourceRedacted>("extensions_mcp_set_enabled", { resourceId, cli, enabled });
+  return trackMcpMutation([cli], () => invoke<McpResourceRedacted>("extensions_mcp_set_enabled", { resourceId, cli, enabled }));
+}
+
+/** Capture the displayed selection in one backend transaction; never partially seed a CLI. */
+export async function saveManagedMcpSelection(
+  resources: McpResourceRedacted[], clis: ExtensionCli[], expectedHome: string | undefined,
+): Promise<McpResourceRedacted[]> {
+  if (!expectedHome || (await getActiveNativeProviderHome()).identity.identity !== expectedHome) {
+    throw new Error("extensions_native_preview_changed");
+  }
+  return trackMcpMutation(clis, () => invoke<McpResourceRedacted[]>("extensions_mcp_set_selection", {
+    homeIdentity: expectedHome,
+    items: resources.map(resource => ({ resourceId: resource.resourceId,
+      enabledByCli: Object.fromEntries(clis.map(cli => [cli, resource.enabledByCli[cli]])) })),
+  }), updated => updated.length > 0);
+}
+
+/** Only explicit icon intent changes a selection; the rest comes from the actual displayed baseline. */
+export function setManagedMcpCliSelection(
+  resources: McpResourceRedacted[], resourceId: string, cli: ExtensionCli, enabled: boolean, expectedHome: string | undefined,
+): Promise<McpResourceRedacted[]> {
+  return saveManagedMcpSelection(resources.map(resource => resource.resourceId === resourceId
+    ? { ...resource, enabledByCli: { ...resource.enabledByCli, [cli]: enabled } } : resource), [cli], expectedHome);
 }
 
 /** 删除应用托管记录，不会删除 CLI 原生配置或外部技能文件。 */
 export function deleteManagedMcpResource(resourceId: string): Promise<void> {
-  return invoke<void>("extensions_mcp_delete", { resourceId });
+  return trackMcpMutation(MCP_CLIS, () => invoke<void>("extensions_mcp_delete", { resourceId }));
 }

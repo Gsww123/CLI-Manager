@@ -8,6 +8,7 @@
 
 | Guide | Description | Status |
 |-------|-------------|--------|
+| [Extensions Management Contracts](./extensions-management-contracts.md) | MCP/Skills persistence, native apply, secret editing and inventory boundaries | Active |
 | [Directory Structure](./directory-structure.md) | Domain/infrastructure owners and namespace-preserving module routes | Active |
 | [Backend Code Comment Contracts](./code-comment-contracts.md) | AI 友好的函数注释范围、内容、放置与可执行等价验证 | Active |
 | [WebDAV Sync Contracts](./webdav-sync-contracts.md) | WebDAV sync request/response boundaries, size checks, and validation cases | Active |

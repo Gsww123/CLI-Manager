@@ -1122,6 +1122,42 @@ pub(crate) fn validate_managed_package(package: &SkillPackageRecord) -> Result<(
     Ok(())
 }
 
+// 项目级 Codex Skill 复用同一套包校验与安全复制实现，不把应用数据目录直接交给 Codex 扫描。
+pub(crate) fn copy_managed_package_to_target(
+    package: &SkillPackageRecord,
+    target: &Path,
+) -> Result<(), String> {
+    validate_managed_package(package)?;
+    let target_name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "extensions_skill_target_invalid".to_string())?;
+    if target_name != package.name || validate_skill_display_name(target_name).is_err() {
+        return Err("extensions_skill_target_invalid".to_string());
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| "extensions_skill_target_invalid".to_string())?;
+    ensure_directory_chain_without_links(parent)?;
+    copy_package_tree(&package.package_path, target)
+}
+
+// 检查项目发现目录中的包摘要；只返回摘要，不把 Skill 正文带入项目策略或日志。
+pub(crate) fn managed_package_content_hash(path: &Path) -> Result<String, String> {
+    scan_skill_package(
+        path,
+        SkillSourceMetadata {
+            source_kind: "project-target".to_string(),
+            source_identity: path_string(path),
+            source_ref: String::new(),
+            resolved_commit: None,
+            subdirectory: String::new(),
+            version: None,
+        },
+    )
+    .map(|candidate| candidate.content_hash)
+}
+
 // 按请求决定链接或复制；auto 仅在明确权限/能力失败时回退复制。
 fn stage_deployment(
     source: &Path,
@@ -1667,7 +1703,13 @@ fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), String> 
     #[cfg(target_os = "windows")]
     {
         std::os::windows::fs::symlink_dir(source, target)
-            .map_err(|error| format!("extensions_skill_symlink_failed:{error}"))?;
+            // Numeric OS codes remain stable on localized Windows installations.
+            .map_err(|error| {
+                format!(
+                    "extensions_skill_symlink_failed:{}:{error}",
+                    error.raw_os_error().unwrap_or(0)
+                )
+            })?;
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1909,6 +1951,9 @@ mod tests {
     // 验证 auto 只由权限/能力错误触发回退，普通目标冲突不被吞成复制成功。
     fn auto_fallback_error_classification_is_narrow() {
         assert!(is_link_fallback_error(
+            "extensions_skill_symlink_failed:1314:客户端没有所需的特权。"
+        ));
+        assert!(is_link_fallback_error(
             "extensions_skill_symlink_failed:Permission denied"
         ));
         assert!(is_link_fallback_error(
@@ -1917,6 +1962,21 @@ mod tests {
         assert!(!is_link_fallback_error(
             "extensions_skill_symlink_failed:disk full"
         ));
+    }
+
+    #[test]
+    fn auto_deployment_uses_real_temporary_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        fs::create_dir(&source).unwrap();
+        write_skill(&source, "docx");
+        let target = root.path().join("target");
+        let (mode, _) = stage_deployment(&source, &target, SkillSyncMode::Auto).unwrap();
+        assert!(target.join("SKILL.md").is_file());
+        assert!(matches!(mode, "copy" | "symlink"));
+        println!("temporary auto deployment mode: {mode}");
+        remove_path_if_present(&target).unwrap();
+        assert!(source.join("SKILL.md").is_file());
     }
 
     #[test]
