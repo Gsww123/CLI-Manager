@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 119
-- **Last Active**: 2026-09-11
+- **Total Sessions**: 120
+- **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1705 | Active |
+| `journal-2.md` | ~1726 | Active |
 | `journal-1.md` | ~2014 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 120 | 2026-09-14 | 完成 MCP 与 Skills 管理 | `f71f4974` | `mcp-skill-manager` |
 | 119 | 2026-09-11 | Fix global MCP and Skills provider Home reuse | `38b2c468` | `mcp-skill-manager` |
 | 118 | 2026-09-11 | 完成 V1.4.0 MCP 与 Skills 管理主线 | `58fe4b05`, `d9e04ace`, `e606b4f3`, `1b421ec4` | `mcp-skill-manager` |
 | 117 | 2026-09-10 | 修复 Pi CLI 全屏 TUI 底部输入框 | `09341b65` | `master` |

@@ -1703,3 +1703,24 @@ Removed the duplicate global Environment & Home editor, reused the provider acti
 ### Status
 
 [OK] **Completed**
+
+
+## Session 120: 完成 MCP 与 Skills 管理
+
+**Date**: 2026-09-14
+**Task**: 完成 MCP 与 Skills 管理
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+完成 MCP/Skills 全局与项目策略管理、Codex/Claude 启动隔离、导入部署、保存应用和项目弹框布局修复；扩展测试、TypeScript、Rust、生产构建与架构检查通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f71f4974` | (see git log) |
+
+### Status
+
+[OK] **Completed**
