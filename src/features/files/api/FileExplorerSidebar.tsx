@@ -226,6 +226,12 @@ function parentPath(path: string): string {
 function fileOperationErrorMessage(error: unknown, t: Translate): string {
   const message = String(error);
   const codes: Array<[string, TranslationKey]> = [
+    ["clipboard_busy", "files.paste.busy"],
+    ["clipboard_changed", "files.paste.changed"],
+    ["clipboard_image_too_large", "files.paste.imageTooLarge"],
+    ["image_dimensions_too_large", "files.error.imageDimensionsTooLarge"],
+    ["clipboard_read_failed", "files.paste.readFailed"],
+    ["invalid_name", "files.paste.invalidName"],
     ["file_operation_unsaved", "files.batch.error.unsaved"],
     ["file_operation_context_changed", "files.batch.error.context"],
     ["file_operation_busy", "files.batch.error.busy"],
@@ -413,7 +419,6 @@ function FileNode({
   const toggleDir = useFileExplorerStore((s) => s.toggleDir);
   const expandCompactDirChain = useFileExplorerStore((s) => s.expandCompactDirChain);
   const collapseDir = useFileExplorerStore((s) => s.collapseDir);
-  const clipboard = useFileExplorerStore((s) => s.clipboard);
   const selected = useFileExplorerStore((s) => s.selectedEntries);
   const selectEntry = useFileExplorerStore((s) => s.selectEntry);
   const busy = useFileExplorerStore((s) => s.mutationBusy);
@@ -598,7 +603,7 @@ function FileNode({
               <ContextMenuItem disabled={busy} onSelect={() => onInput({ kind: "create-dir", parentPath: displayEntry.path })}>
                 <FolderPlus size={13} /> {t("files.menu.newFolder")}
               </ContextMenuItem>
-              <ContextMenuItem disabled={!clipboard || busy} onSelect={() => onPaste(displayEntry.path)}>
+              <ContextMenuItem disabled={busy} onSelect={() => onPaste(displayEntry.path)}>
                 <Copy size={13} /> {t("files.menu.paste")}
               </ContextMenuItem>
               {isManuallyIgnored ? (
@@ -622,6 +627,9 @@ function FileNode({
             </ContextMenuItem>
           )}
           <FileSelectionMenuItems entry={displayEntry} onInput={onInput} onConfirm={onConfirm} />
+          {!readOnly && !isDir && <ContextMenuItem disabled={busy} onSelect={() => onPaste(parentPath(displayEntry.path))}>
+            <Copy size={13} /> {t("files.menu.paste")}
+          </ContextMenuItem>}
           {project && (
             <>
               {!readOnly && <ContextMenuItem onSelect={() => void openFileBrowserFolder(project.path, displayEntry.path, t)}>
@@ -1026,9 +1034,9 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
 
   // 确认覆盖时只重试冲突项，不能重新读取期间可能被替换的全局剪贴板。
   const pasteIntoTarget = useCallback(async (targetParentPath: string, overwrite = false, captured?: FileClipboard) => {
-    const snapshot = captured ?? useFileExplorerStore.getState().clipboard;
-    if (!snapshot) return;
     try {
+      const snapshot = captured ?? await useFileExplorerStore.getState().readPasteClipboard();
+      if (!snapshot) { toast.info(t("files.paste.empty")); return; }
       const result = await pasteInto(targetParentPath, overwrite, snapshot);
       reportBatch(result);
       if (result.conflicts.length && isSameProjectFileContext(useFileExplorerStore.getState().project, snapshot.project)) {
@@ -1049,7 +1057,9 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
       || fileOperationRootKey(currentProject.path) !== fileOperationRootKey(sourceProject.path)
       || sourceProject.environment_type === "ssh") return;
     setClipboard({ mode: "move", entries });
-    await pasteIntoTarget(targetParentPath);
+    // A drag is explicitly internal; do not reread the OS clipboard for it.
+    const snapshot = useFileExplorerStore.getState().clipboard;
+    if (snapshot) await pasteIntoTarget(targetParentPath, false, snapshot);
   }, [pasteIntoTarget, setClipboard]);
 
   const getDropTargetPath = useCallback((entry: ProjectFileEntry) => (
@@ -1328,6 +1338,9 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
             entry={{ kind: "file", name: match.name, path: match.path }}
           />
           <FileSelectionMenuItems entry={entry} onInput={openInput} onConfirm={setConfirmAction} />
+          {!readOnly && <ContextMenuItem disabled={mutationBusy} onSelect={() => void pasteIntoTarget(parentPath(match.path))}>
+            <Copy size={13} /> {t("files.menu.paste")}
+          </ContextMenuItem>}
           {!readOnly && <ContextMenuItem onSelect={() => void openFileBrowserFolder(project.path, match.path, t)}>
             <FolderOpen size={13} /> {t("files.menu.openContainingFolder")}
           </ContextMenuItem>}
@@ -1344,7 +1357,7 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
       </ContextMenu>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEntries, selectEntry, readOnly, renamingAction?.path, cancelRename, submitRename, handleFileKeyDown, handleFilePointerDown, handleFilePointerMove, handleFilePointerUp, handleFilePointerCancel, handleFileDragStart, handleFileDrag, handleFileDragEnd, handleFileDragOver, handleFileDrop, ignoreState, getGitChange, menuPortalContainer, openFileAtSearchMatch, openFileEditorPane, project, requestOpenDiff, t]);
+  }, [selectedEntries, selectEntry, readOnly, mutationBusy, pasteIntoTarget, renamingAction?.path, cancelRename, submitRename, handleFileKeyDown, handleFilePointerDown, handleFilePointerMove, handleFilePointerUp, handleFilePointerCancel, handleFileDragStart, handleFileDrag, handleFileDragEnd, handleFileDragOver, handleFileDrop, ignoreState, getGitChange, menuPortalContainer, openFileAtSearchMatch, openFileEditorPane, project, requestOpenDiff, t]);
 
   const renderSearchRow = useCallback((entry: ProjectFileEntry) => {
     if (!project) return null;
@@ -1431,7 +1444,7 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
         <ContextMenuContent className="file-explorer-menu" portalContainer={menuPortalContainer}>
           <LiveServerFileMenuItem project={project} entry={entry} />
           <FileSelectionMenuItems entry={entry} onInput={openInput} onConfirm={setConfirmAction} />
-          {!readOnly && entry.kind === "directory" && <ContextMenuItem disabled={!clipboard || mutationBusy} onSelect={() => void pasteIntoTarget(entry.path)}>
+          {!readOnly && <ContextMenuItem disabled={mutationBusy} onSelect={() => void pasteIntoTarget(getPasteTargetPath(entry))}>
             <Copy size={13} /> {t("files.menu.paste")}
           </ContextMenuItem>}
         {!readOnly && <ContextMenuItem onSelect={() => void openFileBrowserFolder(project.path, entry.path, t)}>
@@ -1452,7 +1465,7 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
       </ContextMenu>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEntries, selectEntry, clipboard, mutationBusy, readOnly, pasteIntoTarget, ignoreState, cancelRename, getDisplayStatus, getDropTargetPath, getGitChange, handleFileDragEnd, handleFileDragOver, handleFileDragStart, handleFileDrop, handleFileKeyDown, handleFilePointerCancel, handleFilePointerDown, handleFilePointerMove, handleFilePointerUp, menuPortalContainer, openFile, project, renamingAction?.path, requestOpenDiff, submitRename, t]);
+  }, [selectedEntries, selectEntry, mutationBusy, readOnly, pasteIntoTarget, getPasteTargetPath, ignoreState, cancelRename, getDisplayStatus, getDropTargetPath, getGitChange, handleFileDragEnd, handleFileDragOver, handleFileDragStart, handleFileDrop, handleFileKeyDown, handleFilePointerCancel, handleFilePointerDown, handleFilePointerMove, handleFilePointerUp, menuPortalContainer, openFile, project, renamingAction?.path, requestOpenDiff, submitRename, t]);
 
   const copyRootAiTree = useCallback(() => {
     if (!project) return;
@@ -1696,7 +1709,7 @@ export function FileExplorerSidebar({ mode = "sidebar", onClosePanel, onBackToPr
           {!readOnly && <ContextMenuItem disabled={mutationBusy} onSelect={() => openInput({ kind: "create-dir", parentPath: "" })}>
             <FolderPlus size={13} /> {t("files.menu.newFolder")}
           </ContextMenuItem>}
-          {!readOnly && <ContextMenuItem disabled={!clipboard || mutationBusy} onSelect={() => void pasteIntoTarget("")}>
+          {!readOnly && <ContextMenuItem disabled={mutationBusy} onSelect={() => void pasteIntoTarget("")}>
             <Copy size={13} /> {t("files.menu.paste")}
           </ContextMenuItem>}
           {!readOnly && <ContextMenuSeparator />}

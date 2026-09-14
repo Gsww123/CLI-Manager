@@ -160,3 +160,56 @@ test("pointer payload rejects stale, case-changed WSL and busy snapshots", () =>
   current.mutationBusy = true;
   assert.equal(handler({ project, entries: [a] }), null);
 });
+
+test('file-row paste targets the folder or file parent without falling through to root', () => {
+  const pasted = [];
+  const targetPath = callback('getPasteTargetPath', { parentPath: path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '' });
+  const handler = callback('handleFileKeyDown', {
+    useFileExplorerStore: { getState: () => ({ project: { environment_type: 'local' }, selectedEntries: [], mutationBusy: false }) },
+    isFileActionInput: () => false, pasteIntoTarget: target => pasted.push(target), getPasteTargetPath: targetPath,
+  });
+  for (const item of [{ path: 'images/sub', kind: 'directory' }, { path: 'images/file.txt', kind: 'file' }]) {
+    const event = keyEvent('v', { ctrlKey: true }); handler(event, item); assert.equal(event.defaultPrevented, true);
+  }
+  assert.deepEqual(pasted, ['images/sub', 'images']);
+});
+
+test('root paste works without private clipboard and leaves editable targets alone', () => {
+  const calls = [];
+  const handler = callback('handleRootKeyDown', { isFileActionInput: target => target.input, clearSelection() {}, readOnly: false, mutationBusy: false, pasteIntoTarget: path => calls.push(path) });
+  const event = keyEvent('v', { ctrlKey: true }); handler(event);
+  assert.equal(event.defaultPrevented, true); assert.deepEqual(calls, ['']);
+  const input = keyEvent('v', { ctrlKey: true, target: { input: true } }); handler(input);
+  assert.equal(input.defaultPrevented, false); assert.equal(calls.length, 1);
+});
+
+test('paste resolver reads system clipboard once, but confirmation reuses captured image/file snapshot', async () => {
+  let reads = 0; const snapshots = [], confirmations = [];
+  const project = { id: 'one' }; const snapshot = { entries: [a, b], project };
+  const handler = callback('pasteIntoTarget', {
+    useFileExplorerStore: { getState: () => ({ project, readPasteClipboard: async () => { reads++; return snapshot; } }) },
+    pasteInto: async (_target, _overwrite, captured) => { snapshots.push(captured); return { succeeded: [], conflicts: [b] }; },
+    reportBatch() {}, t: key => key, toast: { info() {}, error: error => assert.fail(error) },
+    isSameProjectFileContext: () => true, setConfirmAction: action => confirmations.push(action),
+  });
+  await handler('dest'); await handler('dest', true, confirmations[0].clipboard);
+  assert.equal(reads, 1); assert.equal(snapshots[0], snapshot); assert.deepEqual([...snapshots[1].entries], [b]);
+});
+
+test('empty clipboard produces a helpful message and does not invoke file writes', async () => {
+  let notices = 0;
+  const handler = callback('pasteIntoTarget', {
+    useFileExplorerStore: { getState: () => ({ readPasteClipboard: async () => null }) },
+    pasteInto: () => assert.fail('unexpected mutation'), t: key => key,
+    toast: { info: () => notices++, error: error => assert.fail(error) },
+  });
+  await handler('dest'); assert.equal(notices, 1);
+});
+
+test('Paste menus stay available with empty private clipboard, all file views expose them', () => {
+  assert.doesNotMatch(source, /disabled=\{!clipboard\s*\|\|/);
+  assert.ok(source.includes('onPaste(parentPath(displayEntry.path))'));
+  assert.ok(source.includes('pasteIntoTarget(parentPath(match.path))'));
+  assert.ok(source.includes('pasteIntoTarget(getPasteTargetPath(entry))'));
+  assert.ok(source.includes('if (snapshot) await pasteIntoTarget(targetParentPath, false, snapshot)'));
+});

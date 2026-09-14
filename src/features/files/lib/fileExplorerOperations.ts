@@ -63,13 +63,14 @@ export async function runFileOperationBatch(options: {
   mode: FileOperationMode;
   targetParentPath?: string;
   ignoreCase?: boolean;
+  sourceIgnoreCase?: boolean;
   shouldContinue: () => boolean;
   guard: (entry: FileOperationEntry, targetPath: string) => void;
   execute: (entry: FileOperationEntry) => Promise<void>;
   onSuccess: (entry: FileOperationEntry, targetPath: string) => void;
 }): Promise<FileBatchResult> {
   const { mode, targetParentPath = "", ignoreCase = false } = options;
-  const entries = normalizeFileOperationEntries(options.entries, ignoreCase);
+  const entries = normalizeFileOperationEntries(options.entries, options.sourceIgnoreCase ?? ignoreCase);
   const result: FileBatchResult = { succeeded: [], skipped: [], conflicts: [], failures: [] };
   const targetCounts = new Map<string, number>();
   if (mode !== "delete") {

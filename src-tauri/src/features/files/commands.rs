@@ -18,6 +18,11 @@ use crate::text_encoding::{decode_text, encode_text};
 
 #[path = "commands/path_guards.rs"]
 mod path_guards;
+#[path = "commands/clipboard_files.rs"]
+mod clipboard_files;
+use clipboard_files::read_clipboard_file_paths;
+#[path = "commands/clipboard_import.rs"]
+pub mod clipboard_import;
 use path_guards::{move_paths_ignore_case, path_components_equal, path_starts_with_components};
 
 const TEXT_FILE_MAX_BYTES: u64 = 1024 * 1024;
@@ -240,74 +245,6 @@ fn is_clipboard_image_extension(path: &Path) -> bool {
             )
         })
         .unwrap_or(false)
-}
-#[cfg(target_os = "windows")]
-// 读取 Windows CF_HDROP 文件列表，剪贴板暂不可用时返回空列表。
-fn read_clipboard_file_paths() -> Result<Vec<String>, String> {
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, GetClipboardData, OpenClipboard,
-    };
-    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
-    use windows_sys::Win32::UI::Shell::{DragQueryFileW, HDROP};
-
-    const CF_HDROP: u32 = 15;
-
-    // OpenClipboard 可能因其他进程短暂占用而失败，静默返回空列表而非报错。
-    if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 {
-        return Ok(Vec::new());
-    }
-
-    struct ClipboardGuard;
-    impl Drop for ClipboardGuard {
-        // 退出作用域时关闭已打开的 Windows 剪贴板。
-        fn drop(&mut self) {
-            unsafe {
-                CloseClipboard();
-            }
-        }
-    }
-    let _guard = ClipboardGuard;
-
-    let handle = unsafe { GetClipboardData(CF_HDROP) };
-    if handle.is_null() {
-        return Ok(Vec::new());
-    }
-
-    // GlobalLock 后 HDROP 才可用；解锁与关闭剪贴板分别由手动调用和 guard 负责。
-    let locked = unsafe { GlobalLock(handle as *mut _) };
-    if locked.is_null() {
-        return Ok(Vec::new());
-    }
-    let hdrop = locked as HDROP;
-
-    let count = unsafe { DragQueryFileW(hdrop, u32::MAX, std::ptr::null_mut(), 0) };
-    let mut paths = Vec::with_capacity(count as usize);
-    for index in 0..count {
-        // 先查长度（不含结尾 NUL），再按长度 + 1 取内容。
-        let len = unsafe { DragQueryFileW(hdrop, index, std::ptr::null_mut(), 0) };
-        if len == 0 {
-            continue;
-        }
-        let mut buffer = vec![0u16; len as usize + 1];
-        let copied =
-            unsafe { DragQueryFileW(hdrop, index, buffer.as_mut_ptr(), buffer.len() as u32) };
-        if copied == 0 {
-            continue;
-        }
-        let path = std::ffi::OsString::from_wide(&buffer[..copied as usize]);
-        paths.push(path.to_string_lossy().into_owned());
-    }
-
-    unsafe {
-        GlobalUnlock(handle as *mut _);
-    }
-    Ok(paths)
-}
-#[cfg(not(target_os = "windows"))]
-// 在非 Windows 平台返回空剪贴板文件列表。
-fn read_clipboard_file_paths() -> Result<Vec<String>, String> {
-    Ok(Vec::new())
 }
 #[tauri::command]
 // 在线程池按输入顺序批量检查本地或 WSL 路径是否存在。

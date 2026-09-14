@@ -265,3 +265,20 @@ LiveServerOpenResult { session: LiveServerSession, url: String, reused: bool }
 - Validate case-insensitive HTML injection with and without `</body>`.
 - Validate generated-directory watcher filtering and relevant in-root changes.
 - Start a real loopback listener; assert static response, exact Host behavior, same-root reuse, stop, and listener shutdown.
+
+## Explicit external clipboard imports (TEMP, 2026-09-14)
+New commands live in `src-tauri/src/features/files/commands/clipboard_import.rs`; existing filesystem and terminal attachment signatures stay stable.
+
+```rust
+clipboard_get_revision() -> Option<u32>
+file_clipboard_read(app: AppHandle, known_revision: Option<u32>) -> Result<ClipboardSnapshot, String>
+file_import_external(root_path: String, source_path: String, target_parent_path: String, name: String, overwrite: bool, protected_source_paths: Vec<String>) -> Result<(), String>
+file_import_image(root_path: String, target_parent_path: String, name: String, data_base64: String, overwrite: bool) -> Result<(), String>
+```
+- Snapshot serializes `{ unchanged, entries: [{ path, name, kind, isSymlink, dataBase64 }] }`; `dataBase64=null` means absolute native source path. Screenshot identities are `clipboard-image:<uuid>` and names are unique timestamped PNGs.
+- Windows uses native sequence numbers and CF_HDROP handles; `DragQueryFileW` receives the handle, never the GlobalLock pointer. Clipboard acquisition is bounded to 5 attempts / 20 ms intervals; file lists cap at 4096. A changed revision during snapshot reads fails explicitly. Clipboard is never written/cleared.
+- Images are obtained from the existing clipboard plugin on a blocking worker, encoded as PNG, limited to 12M pixels / 64 MiB encoded bytes, and validated on import. No temporary-attachment retention applies to project imports.
+- External files are COPY-only, including Explorer Cut. Absolute sources and canonical project-relative destinations are validated independently; reject unsafe child names, device/ADS aliases, links/reparse points, non-regular files, excessive nesting, self/ancestor/descendant imports and overlap with any protected batch source. Windows existing target aliases are canonicalized for overlap checks.
+- Stage complete source data beside target before modifying old destination. No-overwrite is default; directory overwrite replaces, not merges. Confirmed overwrite backs up the old item and rolls it back on publication failure. Failed rollback preserves `.cli-manager-import-<uuid>/previous` and returns its path. Windows publication uses MoveFileExW with flags=0 to refuse replacing a concurrently created target. Windows local/WSL/UNC filesystem availability and permissions remain authoritative.
+- No app-data/config/asset protocol scope changes. SSH remains UI/store read-only; no remote upload is implied.
+- Required tests: copied bytes/empty files/Unicode/nested directories, conflict retry, dirty and stale-context guards, screenshot PNG validity, invalid source/target/image, self/ancestor/descendant/batch overlap, case aliases, actual links, staging failure and publication rollback. Desktop clipboard/menu/focus/language checks require a human per frontend quality rules.

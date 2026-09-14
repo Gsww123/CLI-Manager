@@ -30,3 +30,11 @@
 Run `node --test scripts/fileExplorerMultiSelect.test.mjs scripts/fileExplorerBatchStore.test.mjs scripts/fileExplorerMultiSelectUi.test.mjs scripts/terminalFilePointerDrag.test.mjs`, existing file explorer/terminal path tests, and the frontend production build. Rust file command tests cover link guarding and no-op/ancestor moves.
 
 Per repository quality rules, do not launch CLI-Manager or its services for AI runtime UI verification. Human checks must cover both locales, theme/layout variants, actual Ctrl-click and pointer dragging, terminal focus, SSH read-only and WSL/Worktree paths.
+
+## System clipboard imports (TEMP, 2026-09-14)
+- `readPasteClipboard` snapshots project/generation and private clipboard identity before async reads. A shared read lock rejects simultaneous reads; changed scope/copy invalidates pending reads.
+- Private copy/cut captures `clipboard_get_revision`; equal Windows revision keeps the private snapshot, changed revision reads external files then screenshot. Empty/text-only external content never replays stale private entries. Without native revisions, non-Windows private clipboard retains precedence.
+- `FileClipboard.importSources` separates absolute external source identity from project-relative destinations. Image bytes are immutable base64 snapshots; native file data never crosses IPC. Confirmations keep the original source map (protecting other batch sources), filter only entries, and do not reread OS content.
+- Imports use the existing `performFileBatch` copy-mode dirty/refresh/mutation guards. Source dedup is case-sensitive for external sources (WSL case-distinct sources must not collapse); destination-name collisions still follow the target root's case rules.
+- Paste menus cannot be disabled merely because the private clipboard is empty. Rows use their directory or file parent; background uses root. Internal pointer drag passes its private snapshot explicitly and never consults OS clipboard.
+- No document/window paste listener: editor, terminal and editable inputs keep their own clipboard behavior. SSH has both UI and store read-only gates.

@@ -49,7 +49,7 @@ function harness(customInvoke) {
   );
   store = module.exports.useFileExplorerStore;
   store.setState({ project: project() });
-  return { store, calls, mutations: () => calls.filter((call) => ["file_delete", "file_copy", "file_move"].includes(call.command)) };
+  return { store, calls, mutations: () => calls.filter((call) => ["file_delete", "file_copy", "file_move", "file_import_external", "file_import_image"].includes(call.command)) };
 }
 
 test("batch deletion deduplicates parent/child and refreshes Git once", async () => {
@@ -214,4 +214,140 @@ test("search view changes clear selection; refresh of the same query does not", 
   assert.equal(h.store.getState().selectedEntries.length, 1);
   h.store.getState().closeProject();
   assert.equal(h.store.getState().selectedEntries.length, 0);
+});
+
+// System clipboard import regressions; native clipboard is mocked, never overwritten.
+const nativeFile = (path, kind = 'file') => ({ ...entry(path, kind), dataBase64: null });
+const imageEntry = () => ({ ...entry('clipboard-image:one'), name: 'screenshot-one.png', dataBase64: 'PNG_SNAPSHOT' });
+function clipboardHarness(entries, options = {}) {
+  return harness(async (command, args, store) => {
+    const custom = await options.invoke?.(command, args, store);
+    if (custom !== undefined) return custom;
+    if (command === 'clipboard_get_revision') return 10;
+    if (command === 'file_clipboard_read') return { unchanged: options.unchanged ?? false, entries };
+  });
+}
+
+test('OS files paste into the captured directory as copies and refresh that exact parent', async () => {
+  const h = clipboardHarness([nativeFile('C:/downloads/中文 file.txt'), nativeFile('C:/downloads/folder', 'directory')]);
+  const snapshot = await h.store.getState().readPasteClipboard();
+  assert.equal(snapshot.mode, 'copy');
+  const result = await h.store.getState().pasteInto('images', false, snapshot);
+  assert.equal(result.succeeded.length, 2);
+  assert.deepEqual(h.mutations().map(x => x.command), ['file_import_external', 'file_import_external']);
+  assert.equal(h.mutations()[0].args.rootPath, 'E:\\one');
+  assert.equal(h.mutations()[0].args.targetParentPath, 'images');
+  assert.equal(h.mutations()[0].args.name, '中文 file.txt');
+  assert.equal(h.mutations()[0].args.overwrite, false);
+  assert.ok(h.calls.some(x => x.command === 'file_list_dir' && x.args.relativePath === 'images'));
+  assert.equal(h.calls.filter(x => x.command === 'git_get_changes').length, 1);
+});
+
+test('screenshot bytes are snapshotted and sent to project image import, not terminal attachments', async () => {
+  const original = imageEntry(); const h = clipboardHarness([original]);
+  const snapshot = await h.store.getState().readPasteClipboard();
+  original.dataBase64 = 'NEW_CLIPBOARD';
+  await h.store.getState().pasteInto('', false, snapshot);
+  assert.equal(h.mutations()[0].command, 'file_import_image');
+  assert.equal(h.mutations()[0].args.dataBase64, 'PNG_SNAPSHOT');
+  assert.equal(h.mutations()[0].args.name, 'screenshot-one.png');
+  assert.equal(h.calls.some(x => x.command === 'file_attach_data'), false);
+});
+
+test('new external clipboard replaces stale internal cut; unchanged revision keeps internal copy/cut', async () => {
+  for (const mode of ['copy', 'move']) {
+    const external = clipboardHarness([nativeFile('C:/external/new.txt')]);
+    external.store.getState().setClipboard({ mode, entries: [entry('old.txt')] });
+    const snapshot = await external.store.getState().readPasteClipboard();
+    assert.equal(snapshot.mode, 'copy');
+    assert.equal(snapshot.entries[0].name, 'new.txt');
+    assert.equal(external.calls.find(x => x.command === 'file_clipboard_read').args.knownRevision, 10);
+    const internal = clipboardHarness([], { unchanged: true });
+    internal.store.getState().setClipboard({ mode, entries: [entry('old.txt')] });
+    assert.equal(await internal.store.getState().readPasteClipboard(), internal.store.getState().clipboard);
+  }
+});
+
+test('text-only / empty changed clipboard never replays stale internal selection', async () => {
+  const h = clipboardHarness([]);
+  h.store.getState().setClipboard({ mode: 'move', entries: [entry('old.txt')] });
+  assert.equal(await h.store.getState().readPasteClipboard(), null);
+  assert.equal(h.mutations().length, 0);
+});
+
+test('clipboard read errors propagate and release read lock for retry', async () => {
+  let fail = true;
+  const h = clipboardHarness([], { invoke: (command) => {
+    if (command === 'file_clipboard_read' && fail) { fail = false; throw new Error('clipboard_busy'); }
+  } });
+  await assert.rejects(h.store.getState().readPasteClipboard(), /clipboard_busy/);
+  assert.equal(await h.store.getState().readPasteClipboard(), null);
+});
+
+test('switching project / away and back / changing clipboard during read cancels before mutation', async () => {
+  for (const change of ['project', 'roundtrip', 'clipboard', 'clear']) {
+    const h = clipboardHarness([nativeFile('C:/external/a')], { invoke: async (command, _args, store) => {
+      if (command !== 'file_clipboard_read') return;
+      if (change === 'project' || change === 'roundtrip') await store.getState().openProject(project('two'));
+      if (change === 'roundtrip') await store.getState().openProject(project());
+      if (change === 'clipboard') store.getState().setClipboard({ mode: 'copy', entries: [entry('new')] });
+      if (change === 'clear') store.getState().setClipboard(null);
+    } });
+    await assert.rejects(h.store.getState().readPasteClipboard(), /context_changed/);
+    assert.equal(h.mutations().length, 0);
+  }
+});
+
+test('simultaneous panels cannot read/paste overlapping snapshots, SSH never reads clipboard', async () => {
+  let release;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const h = clipboardHarness([], { invoke: async command => { if (command === 'file_clipboard_read') await waiting; } });
+  const first = h.store.getState().readPasteClipboard();
+  await assert.rejects(h.store.getState().readPasteClipboard(), /file_operation_busy/);
+  release(); await first;
+  h.store.setState({ project: { ...project(), environment_type: 'ssh' } });
+  const before = h.calls.length;
+  await assert.rejects(h.store.getState().readPasteClipboard(), /remote_project_read_only/);
+  assert.equal(h.calls.length, before);
+});
+
+test('external overwrite guards dirty targets and preserves buffers edited during awaited copy', async () => {
+  const h = clipboardHarness([nativeFile('C:/external/dirty.txt')]);
+  const snapshot = await h.store.getState().readPasteClipboard();
+  h.store.setState({ openFiles: [buffer('dest/dirty.txt', true)] });
+  const result = await h.store.getState().pasteInto('dest', true, snapshot);
+  assert.match(result.failures[0].error, /unsaved/);
+  assert.equal(h.mutations().length, 0);
+  const pending = clipboardHarness([nativeFile('C:/external/a')], { invoke: (command, _args, store) => {
+    if (command === 'file_import_external') store.setState({ openFiles: [buffer('dest/a', true)] });
+  } });
+  const image = await pending.store.getState().readPasteClipboard();
+  await pending.store.getState().pasteInto('dest', true, image);
+  assert.equal(pending.store.getState().openFiles[0].content, 'edited');
+});
+
+test('external conflict retry only copies conflicts and retains every protected source path', async () => {
+  const h = clipboardHarness([nativeFile('C:/external/good'), nativeFile('C:/external/conflict')], { invoke: (command, args) => {
+    if (command === 'file_import_external' && args.name === 'conflict' && !args.overwrite) throw new Error('target_exists');
+  } });
+  const snapshot = await h.store.getState().readPasteClipboard();
+  const first = await h.store.getState().pasteInto('dest', false, snapshot);
+  assert.equal(first.succeeded.length, 1); assert.equal(first.conflicts.length, 1);
+  h.store.getState().setClipboard({ mode: 'move', entries: [entry('new-private')] });
+  const newer = h.store.getState().clipboard;
+  const second = await h.store.getState().pasteInto('dest', true, { ...snapshot, entries: first.conflicts });
+  assert.equal(second.succeeded.length, 1);
+  assert.deepEqual(h.mutations().map(x => x.args.name), ['good', 'conflict', 'conflict']);
+  assert.deepEqual([...h.mutations()[2].args.protectedSourcePaths], ['C:/external/good', 'C:/external/conflict']);
+  assert.equal(h.store.getState().clipboard, newer);
+  assert.equal(h.calls.filter(x => x.command === 'file_clipboard_read').length, 1);
+});
+
+test('case-distinct WSL sources are not silently collapsed for a Windows destination', async () => {
+  const h = clipboardHarness([nativeFile('//wsl.localhost/Ubuntu/home/a'), nativeFile('//wsl.localhost/Ubuntu/home/A')]);
+  const snapshot = await h.store.getState().readPasteClipboard();
+  const result = await h.store.getState().pasteInto('dest', false, snapshot);
+  assert.equal(result.failures.length, 2);
+  assert.ok(result.failures.every(x => x.error.includes('batch_duplicate_target')));
+  assert.equal(h.mutations().length, 0);
 });

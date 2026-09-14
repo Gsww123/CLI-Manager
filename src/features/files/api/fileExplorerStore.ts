@@ -46,6 +46,14 @@ export interface FileClipboard {
   entries: FileOperationEntry[];
   project: Project;
   generation: number;
+  systemRevision?: Promise<number | null>;
+  /** External source identity is preserved even when a confirmation retries only conflicts. */
+  importSources?: Record<string, { sourcePath: string } | { dataBase64: string }>;
+}
+
+interface NativeClipboardSnapshot {
+  unchanged: boolean;
+  entries: Array<FileOperationEntry & { dataBase64: string | null }>;
 }
 
 export interface ActiveProjectFile {
@@ -159,6 +167,7 @@ interface FileExplorerStore {
   deleteEntries: (entries: FileOperationEntry[], project: Project) => Promise<FileBatchResult>;
   setClipboard: (clipboard: Pick<FileClipboard, "mode" | "entries"> | null) => void;
   pasteInto: (targetParentPath: string, overwrite: boolean, snapshot?: FileClipboard) => Promise<FileBatchResult>;
+  readPasteClipboard: () => Promise<FileClipboard | null>;
 }
 
 export const DEFAULT_COLLAPSED_DIRECTORY_NAMES = [
@@ -719,6 +728,7 @@ async function waitForRemoteFileContextRelease(context: SshRemoteFileContext): P
 let fileMutationRevision = 0;
 let fileClipboardSequence = 0;
 let pendingMutationRefresh = false;
+let clipboardReadBusy = false;
 
 // 串行复用单项 IPC；刷新和冲突重试绑定来源快照，成功项不重放，等待期间的新编辑不丢弃。
 async function performFileBatch(
@@ -744,6 +754,7 @@ async function performFileBatch(
     if (refreshVisibleStateInFlight) await refreshVisibleStateInFlight;
     const result = await runFileOperationBatch({
       entries, mode, targetParentPath, ignoreCase, shouldContinue: isCurrent,
+      sourceIgnoreCase: clipboard?.importSources ? false : ignoreCase,
       guard: (entry, targetPath) => {
         const state = store.getState();
         const files = isCurrent() ? state.openFiles : findEditorWorkspace(state.editorWorkspaces, project)?.openFiles ?? [];
@@ -756,7 +767,23 @@ async function performFileBatch(
         }
       },
       execute: async (entry) => {
-        if (mode === "delete") {
+        const imported = clipboard?.importSources?.[entry.path];
+        if (imported) {
+          if (mode !== "copy") throw new Error("invalid_import_mode");
+          if ("sourcePath" in imported) {
+            await invoke("file_import_external", {
+              rootPath: project.path, targetParentPath, name: entry.name, overwrite,
+              sourcePath: imported.sourcePath,
+              protectedSourcePaths: Object.values(clipboard!.importSources!).flatMap((source) => "sourcePath" in source ? [source.sourcePath] : []),
+            });
+          } else {
+            await invoke("file_import_image", {
+              rootPath: project.path, targetParentPath, name: entry.name, overwrite, dataBase64: imported.dataBase64,
+            });
+          }
+        } else if (clipboard?.importSources) {
+          throw new Error("invalid_import_source");
+        } else if (mode === "delete") {
           await invoke("file_delete", { rootPath: project.path, relativePath: entry.path });
         } else {
           await invoke(mode === "copy" ? "file_copy" : "file_move", {
@@ -1582,6 +1609,7 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
   deleteEntries: (entries, project) => performFileBatch(project, entries, "delete"),
 
   setClipboard: (clipboard) => {
+    const id = ++fileClipboardSequence;
     const project = get().project;
     if (!clipboard || !project || project.environment_type === "ssh") {
       set({ clipboard: null });
@@ -1589,8 +1617,9 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
     }
     set({ clipboard: {
       ...clipboard,
-      id: ++fileClipboardSequence,
+      id,
       entries: normalizeFileOperationEntries(clipboard.entries, isFileExplorerIgnoreCaseInsensitive(project.path)),
+      systemRevision: invoke<number | null>("clipboard_get_revision").catch(() => null),
       project: { ...project }, generation: openProjectRequestSeq,
     } });
   },
@@ -1599,6 +1628,38 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
     const clipboard = snapshot ?? get().clipboard;
     if (!clipboard) return { succeeded: [], skipped: [], failures: [], conflicts: [] };
     return performFileBatch(clipboard.project, clipboard.entries, clipboard.mode, targetParentPath, overwrite, clipboard);
+  },
+  readPasteClipboard: async () => {
+    const project = get().project;
+    if (!project) return null;
+    if (project.environment_type === "ssh") throw new Error("remote_project_read_only");
+    if (clipboardReadBusy || get().mutationBusy) throw new Error("file_operation_busy");
+    const generation = openProjectRequestSeq;
+    const internal = get().clipboard;
+    const clipboardSequence = fileClipboardSequence;
+    const isCurrent = () => generation === openProjectRequestSeq
+      && clipboardSequence === fileClipboardSequence
+      && isSameProjectFileContext(get().project, project)
+      && fileOperationRootKey(get().project?.path ?? "") === fileOperationRootKey(project.path);
+    clipboardReadBusy = true;
+    try {
+      const knownRevision = await internal?.systemRevision ?? null;
+      if (!isCurrent()) throw new Error("file_operation_context_changed");
+      // No reliable OS sequence on non-Windows: retain existing internal copy semantics.
+      if (internal && knownRevision === null) return internal;
+      const native = await invoke<NativeClipboardSnapshot>("file_clipboard_read", { knownRevision });
+      if (!isCurrent()) throw new Error("file_operation_context_changed");
+      if (native.unchanged) return internal;
+      if (!native.entries.length) return null;
+      const entries = native.entries.map(({ dataBase64: _data, ...entry }) => entry);
+      const importSources: NonNullable<FileClipboard["importSources"]> = Object.fromEntries(
+        native.entries.map((entry) => [entry.path, entry.dataBase64 === null
+          ? { sourcePath: entry.path } : { dataBase64: entry.dataBase64 }]),
+      );
+      return { id: ++fileClipboardSequence, mode: "copy", project: { ...project }, generation, entries, importSources };
+    } finally {
+      clipboardReadBusy = false;
+    }
   },
 }));
 
