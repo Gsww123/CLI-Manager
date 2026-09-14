@@ -995,7 +995,7 @@ fn omitted_fields() -> Vec<String> {
 }
 
 // 将投影原文脱敏后返回 IPC；JSON/TOML 解析失败仍返回稳定错误而不泄漏正文。
-fn redact_projected_content(cli: ExtensionCli, source: &str) -> Result<String, String> {
+pub(crate) fn redact_projected_content(cli: ExtensionCli, source: &str) -> Result<String, String> {
     match cli {
         ExtensionCli::Claude => {
             let value: Value = serde_json::from_str(source)

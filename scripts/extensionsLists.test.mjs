@@ -78,7 +78,7 @@ test('Project dialog keeps the modal stable and delegates long lists to the inne
   assert.match(projectPanel, /<DialogContent className="flex h-\[92vh\] max-h-\[calc\(100vh-2rem\)\][^\"]*overflow-hidden/);
   assert.match(projectPanel, /<div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">/);
   assert.match(projectPanel, /<div className="grid min-h-0 flex-1 auto-rows-fr gap-4/);
-  assert.match(projectPanel, /<div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">/);
+  assert.match(projectPanel, /<div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">/);
 });
 
 test('Skill icons reflect active/missing installation and keep each CLI independent', () => {
@@ -110,13 +110,14 @@ test('Both lists reuse sort/icon controls; dense Skill metadata defaults to coll
     const source = read(`components/${file}.tsx`);
     assert.match(source, /<ExtensionSortableList/);
     assert.match(source, /<ExtensionCliToggle/);
-    assert.ok(source.indexOf('{dragHandle}') > source.indexOf('<Card key='));
-    assert.ok(source.indexOf('{dragHandle}') < source.indexOf('.name}</Text>', source.indexOf('<Card key=')));
+    assert.match(source, /<ExtensionCompactRow[\s\S]*?leading=\{dragHandle\}/);
   }
-  assert.match(panel, /lineClamp=\{2\}/);
-  assert.match(panel, /<details>/);
-  assert.doesNotMatch(panel, /<details\s+open/);
-  assert.ok(panel.indexOf('<details>') < panel.indexOf('{packageView.sourceIdentity}'));
+  const row = read('components/ExtensionCompactRow.tsx');
+  assert.ok(row.indexOf('{leading}') < row.indexOf('{name}'));
+  assert.match(panel, /truncate title=\{packageView.description\}/);
+  assert.match(panel, /useState<Record<string, boolean>>\(\{\}\)/);
+  assert.match(panel, /aria-expanded=\{Boolean\(expandedGroups\[group.packageId\]\)\}/);
+  assert.ok(panel.indexOf('{expandedGroups[group.packageId] &&') < panel.indexOf('{packageView.sourceIdentity}'));
   assert.match(panel, /mode: "auto"/);
   assert.match(panel, /if \(!result\.removed\) throw/);
 });

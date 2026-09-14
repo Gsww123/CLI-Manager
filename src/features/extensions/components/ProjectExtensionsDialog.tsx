@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Check, FolderCog } from "lucide-react";
+import { AlertTriangle, Check, FolderCog, X } from "lucide-react";
 import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../../../shared/ui/dialog";
 import { Button } from "../../../shared/ui/button";
@@ -22,6 +22,7 @@ import {
   saveProjectExtensionPolicy,
 } from "../api/projectPolicy";
 import { groupSkillPackages } from "../lib/listPresentation";
+import { ExtensionCompactRow } from "./ExtensionCompactRow";
 
 type ExtensionKind = ExtensionPolicyKind;
 type DraftPolicy = { mode: ExtensionPolicyMode; selectedIds: string[] };
@@ -126,6 +127,7 @@ interface ProjectExtensionsDialogProps {
 /** 项目/Worktree扩展策略编辑器；只保存策略，不改写 CLI 原生项目配置。 */
 export function ProjectExtensionsDialog({ project, worktree, open, onClose }: ProjectExtensionsDialogProps) {
   const { t } = useI18n();
+  const dialogId = useId();
   const projectAppType = project ? getProviderSwitchAppType(project) : null;
   const activeCli: ExtensionCli | null = projectAppType === "grokbuild" ? "grok" : projectAppType;
   const [activeKind, setActiveKind] = useState<ExtensionKind>("mcp");
@@ -208,6 +210,11 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
   const canCustomize = capabilityStatus === "supported" && !forcedGlobalOnly;
   const editableSelection = canCustomize && currentDraft?.mode === "custom";
   const query = searchValue.trim().toLocaleLowerCase();
+  const resourceNames = useMemo(() => new Map(
+    activeKind === "mcp"
+      ? response?.resources.map(resource => [resource.resourceId, resource.name] as const)
+      : response?.packages.map(packageView => [packageView.packageId, packageView.name] as const),
+  ), [activeKind, response]);
 
   const resources = useMemo(() => {
     if (!response) return [];
@@ -258,6 +265,19 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
     updateDraft({ selectedIds: Array.from(selected) });
   };
 
+  // 以有效集合为起点保留隐藏项与已选来源；批量操作显式建立当前 CLI 的自定义策略。
+  const toggleAllVisible = (select: boolean) => {
+    if (!canCustomize || loading || saving || !currentDraft) return;
+    const selected = new Set(effectiveIds);
+    for (const resource of resources) {
+      if (!select) resource.ids.forEach(id => selected.delete(id));
+      else if (!resource.ids.some(id => selected.has(id)) && resource.ids[0]) selected.add(resource.ids[0]);
+    }
+    updateDraft({ mode: "custom", selectedIds: Array.from(selected) });
+  };
+
+  const allVisibleSelected = resources.length > 0 && resources.every(resource => resource.ids.some(id => effectiveIds.includes(id)));
+
   const save = async () => {
     if (!activeCli || !project || !response || !currentDraft || saving || forcedGlobalOnly) return;
     setSaving(true);
@@ -293,22 +313,24 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
-      <DialogContent className="flex h-[92vh] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col overflow-hidden p-0" showCloseButton={!saving}>
-        <div className="border-b border-border/70 px-5 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3 pr-5">
-            <div className="min-w-0">
+      <DialogContent className="flex h-[92vh] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col overflow-hidden p-0" showCloseButton={false}>
+        <div className="shrink-0 border-b border-border/70 px-5 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <DialogTitle className="flex items-center gap-2 text-base">
                 <FolderCog size={17} />
                 {t("extensions.project.title")}
               </DialogTitle>
-              <DialogDescription className="mt-1 max-w-3xl">
+              <DialogDescription className="sr-only sm:not-sr-only sm:mt-1">
                 {t("extensions.project.description")}
               </DialogDescription>
+              <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <span className="max-w-full truncate font-medium text-text-primary" title={project?.name}>{project?.name || "—"}{worktree ? ` · ${worktree.name}` : ""}</span>
+                {activeCli && <span className="rounded-md bg-primary/10 px-2 py-0.5 text-text-secondary">{t("extensions.project.boundCli", { cli: t(CLI_LABEL_KEYS[activeCli]) })}</span>}
+              </div>
+              <div className="mt-1 truncate text-xs text-text-muted" title={path}>{path || "—"}</div>
             </div>
-            <div className="rounded-lg border border-border/60 bg-surface-container-low px-3 py-2 text-right text-xs">
-              <div className="font-medium text-text-primary">{project?.name || "—"}{worktree ? ` · ${worktree.name}` : ""}</div>
-              <div className="mt-0.5 max-w-[min(60vw,30rem)] truncate text-text-muted" title={path}>{path || "—"}</div>
-            </div>
+            <Button variant="ghost" size="icon" disabled={saving} onClick={close} aria-label={t("extensions.import.close")} title={t("extensions.import.close")}><X size={16} /></Button>
           </div>
         </div>
 
@@ -331,24 +353,33 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
               {t("extensions.project.unsupportedCli", { cli: project?.cli_tool || "—" })}
             </div>
           ) : <>
-          <p className="mb-3 text-xs text-text-muted">{t("extensions.project.boundCli", { cli: t(CLI_LABEL_KEYS[activeCli]) })}</p>
-
-          <div className="mb-3 grid gap-2 sm:grid-cols-2" role="tablist" aria-label={t("extensions.project.kind")}>
+          <div className="mb-2 grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-surface-container-low p-1" role="tablist" aria-label={t("extensions.project.kind")}>
             {KIND_ORDER.map((kind) => (
               <button
                 key={kind}
                 type="button"
                 role="tab"
                 aria-selected={activeKind === kind}
-                className={`rounded-lg border px-3 py-2 text-left text-sm transition ${activeKind === kind ? "border-primary bg-primary/10 text-text-primary" : "border-border/60 text-text-secondary hover:bg-surface-container-low"}`}
+                id={`${dialogId}-${kind}-tab`}
+                aria-controls={`${dialogId}-panel`}
+                tabIndex={activeKind === kind ? 0 : -1}
+                className={`border-b-2 px-3 py-2 text-left text-sm transition ${activeKind === kind ? "border-primary text-text-primary" : "border-transparent text-text-secondary hover:border-border/60"}`}
                 onClick={() => setActiveKind(kind)}
+                onKeyDown={(event) => {
+                  // 页签采用单一 Tab 停靠点；方向键切换时同步移动焦点。
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                  event.preventDefault();
+                  const nextKind = event.key === "Home" ? "mcp" : event.key === "End" ? "skill" : kind === "mcp" ? "skill" : "mcp";
+                  setActiveKind(nextKind);
+                  document.getElementById(`${dialogId}-${nextKind}-tab`)?.focus();
+                }}
               >
                 {kind === "mcp" ? t("extensions.project.mcp") : t("extensions.project.skills")}
               </button>
             ))}
           </div>
 
-          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-surface-container-low/50 px-3 py-2 text-xs">
+          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 text-xs">
             <span className="font-medium text-text-secondary">{t("extensions.project.capability")}</span>
             <span className={statusColor(capabilityStatus)}>{t(STATUS_LABEL_KEYS[capabilityStatus])}</span>
             <span className="mx-1 text-text-muted">·</span>
@@ -357,29 +388,31 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
             {applicationStatus === "error" && <span className="text-text-muted">{t("extensions.project.applicationError")}</span>}
           </div>
 
-          <div className="grid min-h-0 flex-1 auto-rows-fr gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.7fr)]">
+          <div className="grid min-h-0 flex-1 auto-rows-fr gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.7fr)]" role="tabpanel" id={`${dialogId}-panel`} aria-labelledby={`${dialogId}-${activeKind}-tab`}>
             <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface-container-low/35 p-3">
-              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-text-primary">{t("extensions.project.policy")}</h3>
-                  <p className="mt-1 text-xs text-text-muted">{t("extensions.project.policyDescription")}</p>
+                  <p className="sr-only">{t("extensions.project.policyDescription")}</p>
                 </div>
                 <Input
                   value={searchValue}
                   onChange={(event) => setSearchValue(event.target.value)}
                   placeholder={t("extensions.project.search")}
                   aria-label={t("extensions.project.search")}
-                  className="h-8 w-full text-xs sm:w-56"
+                  className="h-8 min-w-0 flex-1 text-xs sm:max-w-56"
                 />
               </div>
 
-              <div className="mb-3 grid gap-2 sm:grid-cols-2">
+              <div className="mb-2 grid shrink-0 grid-cols-2 gap-2" role="group" aria-label={t("extensions.project.policy")}>
                 {(["inherit", "custom"] as ExtensionPolicyMode[]).map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     disabled={mode === "custom" && !canCustomize}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-50 ${currentDraft?.mode === mode ? "border-primary bg-primary/10 text-text-primary" : "border-border/60 text-text-secondary hover:bg-surface-container-low"}`}
+                    aria-pressed={currentDraft?.mode === mode}
+                    title={mode === "inherit" ? t("extensions.project.inheritDescription") : t("extensions.project.customDescription")}
+                    className={`rounded-md border px-3 py-1.5 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-50 ${currentDraft?.mode === mode ? "border-border bg-surface-container-low text-text-primary shadow-sm" : "border-transparent text-text-secondary hover:border-border/60"}`}
                     onClick={() => updateDraft({
                       mode,
                       ...(mode === "custom" && currentDraft?.mode !== "custom"
@@ -388,11 +421,19 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
                     })}
                   >
                     <span className="block font-medium">{mode === "inherit" ? t("extensions.project.inherit") : t("extensions.project.custom")}</span>
-                    <span className="mt-1 block text-[11px] text-text-muted">{mode === "inherit" ? t("extensions.project.inheritDescription") : t("extensions.project.customDescription")}</span>
                   </button>
                 ))}
               </div>
 
+              <div className="mb-1 flex shrink-0 items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate text-text-muted">{t("extensions.project.batchScope")}</span>
+                <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs"
+                  disabled={!canCustomize || loading || saving || resources.length === 0}
+                  title={t("extensions.project.batchHelp")}
+                  onClick={() => toggleAllVisible(!allVisibleSelected)}>
+                  {t(allVisibleSelected ? "extensions.project.clearAll" : "extensions.import.selectAll")}
+                </Button>
+              </div>
               {loading ? (
                 <div className="py-10 text-center text-xs text-text-muted">{t("extensions.loading")}</div>
               ) : resources.length === 0 ? (
@@ -400,40 +441,50 @@ export function ProjectExtensionsDialog({ project, worktree, open, onClose }: Pr
                   {activeKind === "mcp" ? t("extensions.project.noMcp") : t("extensions.project.noSkills")}
                 </div>
               ) : (
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
                   {resources.map((resource) => {
                     const selected = forcedGlobalOnly || currentDraft?.mode === "inherit"
                       ? resource.ids.some((id) => effectiveIds.includes(id))
                       : resource.ids.some((id) => currentDraft?.selectedIds.includes(id) ?? false);
+                    // 名称与介绍都关联原生 checkbox；禁用和 Space 操作仍由 input 负责。
                     return (
-                      <label key={resource.id} className={`flex min-w-0 gap-3 rounded-lg border px-3 py-2 ${editableSelection ? "cursor-pointer hover:bg-surface-container-low" : "cursor-default"} border-border/60`}>
-                        <input
+                      <ExtensionCompactRow
+                        key={resource.id}
+                        compact
+                        selected={selected}
+                        leading={<input
+                          id={`${dialogId}-${resource.id}`}
                           type="checkbox"
                           checked={selected}
                           disabled={!editableSelection}
                           onChange={() => toggleSelection(resource.ids)}
-                          className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                          className="h-4 w-4 shrink-0 accent-primary"
                           aria-label={resource.name}
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-text-primary">{resource.name}</span>
-                          <span className="mt-0.5 block truncate text-[11px] text-text-muted">{resource.detail}</span>
-                          <span className="mt-0.5 block truncate text-[11px] text-text-muted">{resource.source}</span>
-                        </span>
-                      </label>
+                        />}
+                        name={<label htmlFor={`${dialogId}-${resource.id}`} className={`block select-none truncate ${editableSelection ? "cursor-pointer" : "cursor-default"}`} title={resource.name}>{resource.name}</label>}
+                        description={<label htmlFor={`${dialogId}-${resource.id}`} className={`block select-none truncate text-[11px] leading-4 ${editableSelection ? "cursor-pointer" : "cursor-default"}`} title={`${resource.detail} · ${resource.source}`}>
+                          {[resource.detail !== resource.name && resource.detail, resource.source].filter(Boolean).join(" · ")}
+                        </label>}
+                      />
                     );
                   })}
                 </div>
               )}
             </section>
 
-            <aside className="min-h-0 overflow-y-auto rounded-xl border border-border/70 bg-surface-container-low/35 p-3">
+            <aside className="min-h-0 min-w-0 overflow-y-auto rounded-xl border border-border/70 bg-surface-container-low/35 p-3" aria-label={t("extensions.project.preview")}>
               <h3 className="text-sm font-semibold text-text-primary">{t("extensions.project.preview")}</h3>
               <div className="mt-3 space-y-2 text-xs">
                 <div className="flex items-center justify-between gap-3"><span className="text-text-muted">{t("extensions.project.globalState")}</span><span className="font-medium text-text-primary">{globalIds.length}</span></div>
                 <div className="flex items-center justify-between gap-3"><span className="text-text-muted">{t("extensions.project.effective")}</span><span className="font-medium text-text-primary">{effectiveIds.length}</span></div>
                 <div className="flex items-center justify-between gap-3"><span className="text-text-muted">{t("extensions.project.applied")}</span><span className="font-medium text-text-primary">{currentPolicy?.appliedIds.length ?? 0}</span></div>
               </div>
+              <ul className="mt-3 space-y-1 text-xs text-text-primary" aria-label={t("extensions.project.effective")}>
+                {effectiveIds.map(id => {
+                  const name = resourceNames.get(id);
+                  return <li key={id} className="flex min-w-0 items-center gap-2 py-1"><Check size={12} className="shrink-0 text-success" /><span className="truncate" title={name || id}>{name || id}</span></li>;
+                })}
+              </ul>
               <div className="mt-4 rounded-lg border border-border/60 bg-surface-container-low px-3 py-2 text-xs leading-relaxed text-text-muted">
                 {currentDraft?.mode === "custom" ? t("extensions.project.customPreview") : t("extensions.project.inheritPreview", { source: response?.scopeKind === "worktree" && parentPolicy?.mode === "custom" ? t("extensions.project.projectSource") : t("extensions.project.globalSource") })}
               </div>

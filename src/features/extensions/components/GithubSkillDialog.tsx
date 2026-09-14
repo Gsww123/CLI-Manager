@@ -3,9 +3,9 @@ import {
   Alert,
   Badge,
   Button,
-  Card,
   Checkbox,
   Group,
+  Modal,
   ScrollArea,
   Select,
   SimpleGrid,
@@ -30,6 +30,7 @@ import type {
   SkillSyncMode,
 } from "../../../shared/types/extensions";
 import type { NativeProviderHomeState } from "../../settings/api/nativeProviderTypes";
+import { ExtensionCompactRow } from "./ExtensionCompactRow";
 
 interface GithubSkillDialogProps {
   open: boolean;
@@ -80,7 +81,8 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<GithubSkillInstallResult | null>(null);
   const [targetResults, setTargetResults] = useState<Array<{ packageId: string; status: "success" | "failed" }>>([]);
-  const [busy, setBusy] = useState<"preview" | "install" | "deploy" | "cancel" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "install" | "deploy" | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,11 +98,14 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
     setResult(null);
     setTargetResults([]);
     setBusy(null);
+    setCancelling(false);
     setActiveOperationId(null);
     setError(null);
   }, [open]);
 
   const allSelected = Boolean(preview?.candidates.length) && selectedIds.size === preview?.candidates.length;
+  const operationPending = Boolean(busy) || cancelling;
+  const failedTargetCount = targetResults.filter(item => item.status === "failed").length;
 
   const scan = async () => {
     if (!repositoryUrl.trim()) {
@@ -190,16 +195,17 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
     }
   };
 
+  // 取消确认与扫描/安装完成是两个独立请求；只有原操作收尾后才能解除 busy。
   const cancel = async () => {
-    if (!activeOperationId) return;
-    setBusy("cancel");
+    if (!activeOperationId || cancelling) return;
+    setCancelling(true);
     try {
       await cancelGithubSkill(activeOperationId);
       setError(t("extensions.skills.githubCancelled"));
     } catch {
       setError(t("extensions.errors.generic"));
     } finally {
-      setBusy(null);
+      setCancelling(false);
     }
   };
 
@@ -217,32 +223,39 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
   };
 
   const close = () => {
-    if (!busy) onClose();
+    if (!operationPending) onClose();
   };
 
   return (
-    <div
-      className={`fixed inset-0 z-[60] ${open ? "flex" : "hidden"} items-center justify-center bg-black/50 p-4`}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("extensions.skills.githubTitle")}
-      onClick={close}
+    <Modal
+      opened={open}
+      onClose={close}
+      title={t("extensions.skills.githubTitle")}
+      centered
+      size="xl"
+      zIndex={80}
+      closeOnEscape={!operationPending}
+      closeOnClickOutside={!operationPending}
+      closeButtonProps={{ disabled: operationPending, "aria-label": t("extensions.import.close") }}
+      styles={{
+        content: { maxHeight: "92dvh", display: "flex", flexDirection: "column" },
+        header: { flexShrink: 0 },
+        body: { minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" },
+      }}
     >
-      <div className="ui-surface-card flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl p-5" onClick={(event) => event.stopPropagation()}>
-        <Stack gap="sm">
-          <Group justify="space-between" align="flex-start" wrap="wrap">
-            <Stack gap={2}>
-              <Text fw={650}>{t("extensions.skills.githubTitle")}</Text>
-              <Text size="xs" c="dimmed">{t("extensions.skills.githubDescription")}</Text>
-            </Stack>
-            <Button variant="subtle" color="gray" onClick={close}>{t("extensions.import.close")}</Button>
-          </Group>
-
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Stack gap="md">
+          <Text size="xs" c="dimmed">{t("extensions.skills.githubDescription")}</Text>
+          <details open={!preview} className="min-w-0 rounded-lg border border-border/60 p-3">
+            <summary className="cursor-pointer truncate text-sm font-medium text-text-primary" title={repositoryUrl}>
+              {preview ? `${preview.owner}/${preview.repository}` : t("extensions.skills.githubRepository")}
+            </summary>
+            <Stack gap="xs" mt="sm">
           <TextInput
             label={t("extensions.skills.githubRepository")}
             placeholder={t("extensions.skills.githubRepositoryPlaceholder")}
             value={repositoryUrl}
-            disabled={Boolean(busy)}
+            disabled={operationPending}
             onChange={(event) => {
               setRepositoryUrl(event.currentTarget.value);
               setPreview(null);
@@ -250,12 +263,12 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
               setResult(null);
             }}
           />
-          <Group grow align="flex-end" wrap="wrap">
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
             <TextInput
               label={t("extensions.skills.githubReference")}
               placeholder={t("extensions.skills.githubReferencePlaceholder")}
               value={reference}
-              disabled={Boolean(busy)}
+              disabled={operationPending}
               onChange={(event) => {
                 setReference(event.currentTarget.value);
                 setPreview(null);
@@ -267,7 +280,7 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
               label={t("extensions.skills.githubSubdirectory")}
               placeholder={t("extensions.skills.githubSubdirectoryPlaceholder")}
               value={subdirectory}
-              disabled={Boolean(busy)}
+              disabled={operationPending}
               onChange={(event) => {
                 setSubdirectory(event.currentTarget.value);
                 setPreview(null);
@@ -275,41 +288,64 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
                 setResult(null);
               }}
             />
-          </Group>
-          <Group justify="flex-end" gap="xs">
-            {(busy === "preview" || busy === "install" || busy === "cancel") && <Button variant="light" color="gray" leftSection={<X size={15} />} loading={busy === "cancel"} disabled={busy === "cancel"} onClick={() => void cancel()}>{t("extensions.skills.githubCancel")}</Button>}
-            <Button color="cliPrimary" leftSection={<RefreshCw size={15} />} loading={busy === "preview"} disabled={Boolean(busy) || !repositoryUrl.trim()} onClick={() => void scan()}>
-              {t("extensions.skills.githubPreview")}
-            </Button>
-          </Group>
+          </SimpleGrid>
+            </Stack>
+          </details>
 
           {error && <Alert color="red" variant="light" icon={<AlertTriangle size={16} />}>{error}</Alert>}
           {preview && (
-            <Stack gap="xs">
+            <Stack gap="sm">
               <Group justify="space-between" wrap="wrap">
                 <Stack gap={2}>
                   <Text size="sm" fw={600}>{preview.owner}/{preview.repository}</Text>
-                  <Text size="xs" c="dimmed">{t("extensions.skills.githubCommit", { commit: preview.resolvedCommit })}</Text>
+                  <Text size="xs" c="dimmed" className="break-all">{t("extensions.skills.githubCommit", { commit: preview.resolvedCommit })}</Text>
                 </Stack>
                 <Checkbox
                   label={t("extensions.skills.githubSelectAll")}
                   checked={allSelected}
                   indeterminate={selectedIds.size > 0 && !allSelected}
+                  disabled={operationPending}
                   onChange={(event) => toggleAll(event.currentTarget.checked)}
                 />
               </Group>
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              <Group justify="space-between" gap="xs">
+                <Text size="sm" fw={600}>{t("extensions.skills.githubCandidates")}</Text>
+                <Badge variant="light">{t("extensions.skills.githubSelected", { count: selectedIds.size, total: preview.candidates.length })}</Badge>
+              </Group>
+              {preview.candidates.length === 0 && <Text size="sm" c="dimmed">{t("extensions.errors.githubNotFound")}</Text>}
+              <ScrollArea.Autosize mah="32dvh" type="auto" offsetScrollbars>
+                <Stack gap="xs">
+                  {preview.candidates.map((candidate) => (
+                    <ExtensionCompactRow
+                      key={candidate.candidateId}
+                      selected={selectedIds.has(candidate.candidateId)}
+                      leading={<Checkbox
+                        id={`github-skill-${candidate.candidateId}`}
+                        checked={selectedIds.has(candidate.candidateId)}
+                        disabled={operationPending}
+                        onChange={(event) => toggleCandidate(candidate, event.currentTarget.checked)}
+                        aria-label={candidate.name}
+                      />}
+                      name={<label htmlFor={`github-skill-${candidate.candidateId}`} className="block cursor-pointer truncate" title={candidate.name}>{candidate.name}</label>}
+                      description={<Text size="xs" c="dimmed" lineClamp={2} className="break-words" title={candidate.description}>{candidate.description}</Text>}
+                      meta={<Text size="xs" c="dimmed" className="truncate" title={candidate.skillPath}>{t("extensions.skills.githubCandidatePath", { path: candidate.skillPath })}</Text>}
+                      status={<Badge size="sm" variant="light" title={candidate.manifestHash}>{candidate.manifestHash.slice(0, 12)}</Badge>}
+                    />
+                  ))}
+                </Stack>
+              </ScrollArea.Autosize>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" className="border-t border-border/60 pt-3">
                 <Select
                   label={t("extensions.skills.githubTarget")}
                   value={targetCli}
-                  disabled={Boolean(busy)}
+                  disabled={operationPending}
                   data={(["claude", "codex", "grok"] as ExtensionCli[]).map((item) => ({ value: item, label: t(CLI_LABEL_KEYS[item]) }))}
                   onChange={(value) => setTargetCli((value as ExtensionCli) || "claude")}
                 />
                 <Select
                   label={t("extensions.skills.githubTargetMode")}
                   value={targetMode}
-                  disabled={Boolean(busy)}
+                  disabled={operationPending}
                   data={(["auto", "symlink", "copy"] as SkillSyncMode[]).map((item) => ({ value: item, label: t(MODE_LABEL_KEYS[item]) }))}
                   onChange={(value) => setTargetMode((value as SkillSyncMode) || "auto")}
                 />
@@ -321,35 +357,14 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
               ) : (
                 <Alert color="yellow">{t("extensions.skills.noHome")}</Alert>
               )}
-              <Text size="sm" fw={600}>{t("extensions.skills.githubCandidates")}</Text>
-              <ScrollArea h={240} type="auto">
-                <Stack gap="xs" pr="xs">
-                  {preview.candidates.map((candidate) => (
-                    <Card key={candidate.candidateId} withBorder padding="sm" radius="md" className="border-border/60 bg-surface-container-low">
-                      <Group align="flex-start" wrap="nowrap">
-                        <Checkbox checked={selectedIds.has(candidate.candidateId)} onChange={(event) => toggleCandidate(candidate, event.currentTarget.checked)} aria-label={candidate.name} />
-                        <Stack gap={2} miw={0} className="min-w-0 flex-1">
-                          <Text size="sm" fw={600}>{candidate.name}</Text>
-                          <Text size="xs" c="dimmed" className="break-words">{candidate.description}</Text>
-                          <Text size="xs" c="dimmed" className="break-all">{t("extensions.skills.githubCandidatePath", { path: candidate.skillPath })}</Text>
-                        </Stack>
-                        <Badge size="sm" variant="light">{candidate.manifestHash.slice(0, 12)}</Badge>
-                      </Group>
-                    </Card>
-                  ))}
-                </Stack>
-              </ScrollArea>
-              <Group justify="flex-end">
-                <Button color="cliPrimary" leftSection={<Check size={15} />} loading={busy === "install" || busy === "deploy"} disabled={Boolean(busy) || selectedIds.size === 0 || !home} onClick={() => void install()}>
-                  {t("extensions.skills.githubInstall")}
-                </Button>
-              </Group>
             </Stack>
           )}
 
           {result && (
-            <Alert color={result.skipped > 0 ? "yellow" : "green"} variant="light">
-              {result.skipped > 0
+            <Alert color={operationPending ? "blue" : result.skipped > 0 || failedTargetCount > 0 ? "yellow" : "green"} variant="light">
+              {operationPending ? t("extensions.loading")
+                : failedTargetCount > 0 ? t("extensions.skills.githubTargetPartial", { count: failedTargetCount })
+                : result.skipped > 0
                 ? t("extensions.skills.githubPartial", { count: result.skipped })
                 : t("extensions.skills.githubSuccess")}
               {result.warnings.length > 0 && (
@@ -371,6 +386,19 @@ export function GithubSkillDialog({ open, home, onClose, onInstalled }: GithubSk
           )}
         </Stack>
       </div>
-    </div>
+      <Group justify="space-between" gap="xs" mt="md" pt="sm" className="shrink-0 border-t border-border/60">
+        {(busy === "preview" || busy === "install" || cancelling)
+          ? <Button variant="light" color="gray" leftSection={<X size={15} />} loading={cancelling} disabled={cancelling} onClick={() => void cancel()}>{t("extensions.skills.githubCancel")}</Button>
+          : <Button variant="subtle" color="gray" disabled={operationPending} onClick={close}>{t("extensions.import.close")}</Button>}
+        <Group gap="xs">
+          <Button variant={preview ? "light" : "filled"} color="cliPrimary" leftSection={<RefreshCw size={15} />} loading={busy === "preview"} disabled={operationPending || !repositoryUrl.trim()} onClick={() => void scan()}>
+            {t("extensions.skills.githubPreview")}
+          </Button>
+          {preview && <Button color="cliPrimary" leftSection={<Check size={15} />} loading={busy === "install" || busy === "deploy"} disabled={operationPending || selectedIds.size === 0 || !home} onClick={() => void install()}>
+            {t("extensions.skills.githubInstall")}
+          </Button>}
+        </Group>
+      </Group>
+    </Modal>
   );
 }

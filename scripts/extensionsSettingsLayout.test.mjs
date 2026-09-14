@@ -33,7 +33,7 @@ test('Native configuration preview mounts only from its toolbar button', () => {
   const mcp = read('features/extensions/components/GlobalMcpPanel.tsx');
   assert.match(mcp, /nativePreviewOpen && <NativeMcpPanel onClose=/);
   assert.match(mcp, /onClick=\{\(\) => setNativePreviewOpen\(true\)\}/);
-  assert.match(native, /return <Modal opened/);
-  assert.match(native, /closeOnClickOutside=\{!busy\} closeOnEscape=\{!busy\}/);
+  assert.match(native, /return\s*\(\s*<Modal\s+opened/);
+  assert.match(native, /closeOnClickOutside=\{!busy\}\s+closeOnEscape=\{!busy\}/);
   assert.doesNotMatch(native, /<Card|extensions\.native\.title/);
 });

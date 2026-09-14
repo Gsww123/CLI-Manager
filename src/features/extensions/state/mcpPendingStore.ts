@@ -5,13 +5,14 @@ import type { McpRevisions } from "../lib/mcpPending";
 interface McpPendingState {
   revisions: McpRevisions;
   applied: Record<string, Partial<McpRevisions>>;
+  discarded: Record<string, Partial<McpRevisions>>;
   operation: "edit" | "save" | null;
   epoch: number;
 }
 
 // Session UI state survives settings-page unmounts. Canonical resources remain in SQLite.
 export const useMcpPendingStore = create<McpPendingState>(() => ({
-  revisions: { claude: 0, codex: 0, grok: 0 }, applied: {}, operation: null, epoch: 0,
+  revisions: { claude: 0, codex: 0, grok: 0 }, applied: {}, discarded: {}, operation: null, epoch: 0,
 }));
 
 /** Reserve the entire async operation before IPC so navigation cannot race an edit. */
@@ -26,6 +27,14 @@ export function acknowledgeMcpSave(home: string, cli: ExtensionCli, revision: nu
   useMcpPendingStore.setState(state => ({ applied: {
     ...state.applied, [home]: { ...state.applied[home], [cli]: revision },
   } }));
+}
+
+/** 取消当前 Home 的待应用批次；不伪造应用成功，也不回退其他 Home 共用的递增版本。 */
+export function discardMcpChanges(home: string) {
+  const state = useMcpPendingStore.getState();
+  if (state.operation) return false;
+  useMcpPendingStore.setState({ discarded: { ...state.discarded, [home]: { ...state.revisions } } });
+  return true;
 }
 
 /** Track desired changes centrally, including imports that bypass the resource list. */

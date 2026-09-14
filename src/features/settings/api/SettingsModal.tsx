@@ -355,7 +355,10 @@ export function SettingsModal({ open, onClose, onAfterClose, initialTab, onActiv
         }`}
         data-workspace-background={workspaceBackgroundActive ? "true" : undefined}
         style={{ fontFamily: effectiveUiFontFamily }}
-        onClick={() => requestClose("backdrop")}
+        onClick={(event) => {
+          // Portal 内的点击仍可能沿 React 树冒泡，只有真实遮罩点击才是离开意图。
+          if (event.target === event.currentTarget) requestClose("backdrop");
+        }}
       >
         <div
           ref={dialogRef}

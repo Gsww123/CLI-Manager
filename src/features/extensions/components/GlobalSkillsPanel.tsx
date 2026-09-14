@@ -11,10 +11,9 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import { ArchiveRestore, Download, FolderInput, Github, RefreshCw, Trash2 } from "lucide-react";
+import { ArchiveRestore, ChevronDown, Download, FolderInput, Github, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
-import { useAppConfirm } from "../../../shared/ui/useAppConfirm";
 import {
   deployManagedSkill,
   restoreManagedSkill,
@@ -31,6 +30,7 @@ import { ExtensionImportDialog } from "./ExtensionImportDialog";
 import { GithubSkillDialog } from "./GithubSkillDialog";
 import { ExtensionCliToggle } from "./ExtensionCliToggle";
 import { ExtensionSortableList } from "./ExtensionSortableList";
+import { ExtensionCompactRow } from "./ExtensionCompactRow";
 import { groupSkillPackages, skillCliPresentation } from "../lib/listPresentation";
 import type { SkillInventoryEntry } from "../api/native";
 import { skillDeploymentErrorKey } from "../lib/skillErrors";
@@ -214,13 +214,14 @@ export function GlobalSkillsPanel({
   home,
   onRefresh,
 }: GlobalSkillsPanelProps) {
+  // Shared row contract is implemented by the compact resource row.
   const { t } = useI18n();
-  const { confirm, confirmDialog } = useAppConfirm();
   const [importOpen, setImportOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [deployPackage, setDeployPackage] = useState<SkillPackageView | null>(null);
   const [deployCli, setDeployCli] = useState<ExtensionCli | null>(null);
   const [selectedSources, setSelectedSources] = useState<Record<string, string>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [working, setWorking] = useState<string | null>(null);
   const workingRef = useRef(false);
 
@@ -248,17 +249,12 @@ export function GlobalSkillsPanel({
     ].some((value) => value.toLocaleLowerCase().includes(query)));
   }, [packageGroups, selectedSources, currentInstallations, searchValue]);
 
+  // 图标与详情直接卸载同一安装实例；保留并发锁、所有权检查及后端外部修改保护。
   const uninstall = async (installation: SkillInstallationView, packageView: SkillPackageView) => {
     if (workingRef.current || !installation.owned || installation.externalModified) return;
     workingRef.current = true;
     setWorking(`${packageView.packageId}:${installation.cli}`);
     try {
-      if (!(await confirm({
-        title: t("extensions.skills.uninstall"),
-        message: t("extensions.skills.uninstallConfirm", { name: packageView.name }),
-        confirmText: t("extensions.skills.uninstall"),
-        danger: true,
-      }))) return;
       const result = await uninstallManagedSkill(installation.installationId);
       if (!result.removed) throw new Error("extensions_skill_external_modified");
       toast.success(t("extensions.skills.uninstallSuccess"));
@@ -290,7 +286,7 @@ export function GlobalSkillsPanel({
     return currentInstallations.filter(item => ids.has(item.packageId));
   };
 
-  // Icon installation uses the existing auto link/copy policy; removal retains confirmation and ownership checks.
+  // Icon installation uses the existing auto link/copy policy; removal retains ownership checks.
   const toggleSkill = async (packageView: SkillPackageView, cli: ExtensionCli) => {
     if (!home || workingRef.current) return;
     const state = skillCliPresentation(installationsFor(packageView.name), cli, inventory, packageView.name, inventoryComplete[cli] === true);
@@ -308,7 +304,6 @@ export function GlobalSkillsPanel({
 
   return (
     <Stack gap="md">
-      {confirmDialog}
       <Group justify="space-between" align="flex-start" wrap="wrap">
         <Stack gap={2}>
           <Text fw={650}>{t("extensions.skills.title")}</Text>
@@ -348,18 +343,20 @@ export function GlobalSkillsPanel({
           {(group, dragHandle) => {
             const packageView = group.selectedPackage;
             const packageInstallations = installationsFor(packageView.name);
+            const sharedPresence = inventory.some(item => item.name === packageView.name && ["agent-compatible", "claude-compatible"].includes(item.sourceKind) && item.status === "present");
+            const inspectDetails = CLI_ORDER.some(cli => skillCliPresentation(packageInstallations, cli).blocked);
             return (
-              <Card key={group.packageId} withBorder radius="md" padding="sm" className="min-w-0 border-border/70 bg-surface-container-low">
-                <Stack gap={4}>
-                  <Group justify="space-between" align="flex-start" wrap="wrap">
-                    <Stack gap={3} miw={0} style={{ flex: "1 1 260px" }} className="min-w-0">
-                      <Group gap="xs" wrap="wrap">
-                        {dragHandle}
-                        <Text fw={650} className="break-words">{packageView.name}</Text>
-                      </Group>
-                      {packageView.description && <Text size="xs" c="dimmed" lineClamp={2} className="break-words">{packageView.description}</Text>}
-                    </Stack>
-                    <Group gap="xs">
+              <ExtensionCompactRow
+                key={group.packageId}
+                leading={dragHandle}
+                name={<div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate" title={packageView.name}>{packageView.name}</span>
+                  {sharedPresence && <Badge size="xs" color="gray" variant="light" className="shrink-0" title={t("extensions.skills.sharedPresence")}>{t("extensions.skills.sharedBadge")}</Badge>}
+                  {inspectDetails && <Badge size="xs" color="orange" variant="light" className="shrink-0" title={t("extensions.skills.inspectDetails")}>{t("extensions.skills.inspectBadge")}</Badge>}
+                </div>}
+                description={packageView.description && <Text size="xs" c="dimmed" truncate title={packageView.description}>{packageView.description}</Text>}
+                status={
+                    <Group gap={4} wrap="nowrap">
                       {CLI_ORDER.map(cli => {
                         const state = skillCliPresentation(packageInstallations, cli, inventory, packageView.name, inventoryComplete[cli] === true);
                         return <ExtensionCliToggle key={cli} cli={cli} enabled={state.enabled}
@@ -369,13 +366,20 @@ export function GlobalSkillsPanel({
                           onClick={() => { void toggleSkill(packageView, cli); }} />;
                       })}
                     </Group>
-                  </Group>
-                  {inventory.some(item => item.name === packageView.name && ["agent-compatible", "claude-compatible"].includes(item.sourceKind) && item.status === "present")
-                    && <Text size="xs" c="dimmed">{t("extensions.skills.sharedPresence")}</Text>}
-                  {CLI_ORDER.some(cli => skillCliPresentation(packageInstallations, cli).blocked) && <Text size="xs" c="orange">{t("extensions.skills.inspectDetails")}</Text>}
-                  <details>
-                    <summary className="cursor-pointer text-xs text-on-surface-variant">{t("extensions.skills.details")}</summary>
-                    <Stack gap="sm" mt="sm">
+                }
+                actions={<Button
+                  size="compact-sm" variant="subtle" color="gray"
+                  aria-expanded={Boolean(expandedGroups[group.packageId])}
+                  aria-label={`${t("extensions.skills.details")}: ${packageView.name}`}
+                  title={t("extensions.skills.details")}
+                  aria-controls={`skill-details-${group.packageId}`}
+                  onClick={() => setExpandedGroups(current => ({ ...current, [group.packageId]: !current[group.packageId] }))}
+                ><ChevronDown size={15} className={`transition-transform ${expandedGroups[group.packageId] ? "rotate-180" : ""}`} /></Button>}
+              >
+                {expandedGroups[group.packageId] && <Stack gap={4} id={`skill-details-${group.packageId}`}>
+                  {sharedPresence && <Text size="xs" c="dimmed">{t("extensions.skills.sharedPresence")}</Text>}
+                  {inspectDetails && <Text size="xs" c="orange">{t("extensions.skills.inspectDetails")}</Text>}
+                    <Stack gap="sm" mt="sm" className="min-w-0">
                       {group.variants.length > 1 && <Select
                         label={t("extensions.skills.sourceVariant")}
                         value={packageView.packageId}
@@ -403,7 +407,7 @@ export function GlobalSkillsPanel({
                     {packageInstallations.length === 0 ? (
                       <Text size="xs" c="dimmed">{t("extensions.skills.noInstallations")}</Text>
                     ) : packageInstallations.map((installation) => (
-                      <Card key={installation.installationId} withBorder padding="sm" radius="md" className="border-border/60">
+                      <div key={installation.installationId} className="min-w-0 border-t border-border/50 py-2">
                         <Group justify="space-between" align="flex-start" wrap="wrap">
                           <Stack gap={3} miw={0} className="min-w-0">
                             <Group gap="xs" wrap="wrap">
@@ -435,13 +439,12 @@ export function GlobalSkillsPanel({
                             </Button>
                           </Group>
                         </Group>
-                      </Card>
+                      </div>
                     ))}
                   </Stack>
                     </Stack>
-                  </details>
-                </Stack>
-              </Card>
+                </Stack>}
+              </ExtensionCompactRow>
             );
           }}
         </ExtensionSortableList>

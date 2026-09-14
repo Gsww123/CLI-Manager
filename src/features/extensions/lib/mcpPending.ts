@@ -3,9 +3,11 @@ import type { ExtensionCli } from "../../../shared/types/extensions";
 export const MCP_CLIS: ExtensionCli[] = ["claude", "codex", "grok"];
 export type McpRevisions = Record<ExtensionCli, number>;
 
-/** A native save acknowledges only the captured revision for one Home and CLI. */
-export function pendingMcpClis(revisions: McpRevisions, applied?: Partial<McpRevisions>): ExtensionCli[] {
-  return MCP_CLIS.filter(cli => revisions[cli] > (applied?.[cli] ?? 0));
+/** 已应用与用户取消是不同状态，但都只结束对应 Home/CLI 的已捕获批次。 */
+export function pendingMcpClis(
+  revisions: McpRevisions, applied?: Partial<McpRevisions>, discarded?: Partial<McpRevisions>,
+): ExtensionCli[] {
+  return MCP_CLIS.filter(cli => revisions[cli] > Math.max(applied?.[cli] ?? 0, discarded?.[cli] ?? 0));
 }
 
 /** Isolate target failures: successful targets stay saved; failures remain retryable. */

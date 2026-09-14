@@ -3,12 +3,14 @@ import type { ExtensionCli } from "../../../shared/types/extensions";
 
 export interface NativeMcpPreview {
   cli: ExtensionCli;
+  format: "json" | "toml";
   path: string;
   fingerprint: string;
   existingKeys: string[];
   enabledKeys: string[];
   removedKeys: string[];
   changed: boolean;
+  content: string;
 }
 
 export function previewNativeMcp(cli: ExtensionCli): Promise<NativeMcpPreview> {

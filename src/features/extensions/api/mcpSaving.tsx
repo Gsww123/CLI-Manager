@@ -6,7 +6,7 @@ import { getActiveNativeProviderHome } from "../../settings/api/nativeProviderHo
 import type { NativeProviderHomeState } from "../../settings/api/nativeProviderTypes";
 import { applyNativeMcp, previewNativeMcp } from "./native";
 import { pendingMcpClis, saveMcpRevisionTargets } from "../lib/mcpPending";
-import { acknowledgeMcpSave, beginMcpOperation, finishMcpOperation, useMcpPendingStore } from "../state/mcpPendingStore";
+import { acknowledgeMcpSave, beginMcpOperation, discardMcpChanges, finishMcpOperation, useMcpPendingStore } from "../state/mcpPendingStore";
 
 export interface McpSaveControls {
   pending: boolean;
@@ -27,7 +27,10 @@ export function useMcpSaveWorkflow(enabled: boolean) {
   const [checking, setChecking] = useState(false);
   const continuation = useRef<(() => void) | null>(null);
   const state = useMcpPendingStore();
-  const targets = pendingMcpClis(state.revisions, home ? state.applied[home.identity.identity] : undefined);
+  const homeIdentity = home?.identity.identity;
+  const targets = pendingMcpClis(state.revisions,
+    homeIdentity ? state.applied[homeIdentity] : undefined,
+    homeIdentity ? state.discarded[homeIdentity] : undefined);
   useEffect(() => {
     if (!enabled) return;
     let stale = false;
@@ -59,7 +62,7 @@ export function useMcpSaveWorkflow(enabled: boolean) {
       }
       setHome(currentHome);
       const snapshot = useMcpPendingStore.getState();
-      const pending = pendingMcpClis(snapshot.revisions, snapshot.applied[identity]);
+      const pending = pendingMcpClis(snapshot.revisions, snapshot.applied[identity], snapshot.discarded[identity]);
       const failures = await saveMcpRevisionTargets(identity, snapshot.revisions, pending, {
         homeIdentity: async () => (await getActiveNativeProviderHome()).identity.identity,
         preview: previewNativeMcp,
@@ -79,15 +82,24 @@ export function useMcpSaveWorkflow(enabled: boolean) {
   }, [home, t]);
 
   const requestLeave = useCallback((next: () => void) => {
+    // 同一次离开意图只打开一个确认框，后续点击不能替换它的目标。
+    if (continuation.current) return;
+    if (!enabled) { next(); return; }
     const current = useMcpPendingStore.getState();
     if (current.operation || checking) { toast.info(t("extensions.save.wait")); return; }
-    if (!pendingMcpClis(current.revisions, home ? current.applied[home.identity.identity] : undefined).length) { next(); return; }
-    // The first navigation intent owns the dialog until explicitly resolved.
-    if (continuation.current) return;
+    if (!pendingMcpClis(current.revisions,
+      homeIdentity ? current.applied[homeIdentity] : undefined,
+      homeIdentity ? current.discarded[homeIdentity] : undefined).length) { next(); return; }
     continuation.current = next; setFailure(null); setLeaveOpen(true);
-  }, [home, t, checking]);
+  }, [enabled, homeIdentity, t, checking]);
   const cancelLeave = () => { continuation.current = null; setLeaveOpen(false); };
   const leave = () => { const next = continuation.current; cancelLeave(); next?.(); };
+  // 只取消待应用状态，列表随后读回原生启用状态；编辑器已保存的受管定义不回滚。
+  const discardAndLeave = () => {
+    const next = continuation.current;
+    if (!next || !homeIdentity || !discardMcpChanges(homeIdentity)) return;
+    leave();
+  };
   const busy = state.operation !== null;
   return {
     pending: targets.length > 0, pendingClis: targets, busy: busy || checking, save, requestLeave,
@@ -96,7 +108,7 @@ export function useMcpSaveWorkflow(enabled: boolean) {
     homeIdentity: home?.identity.identity,
     dialog: <Modal opened={leaveOpen} onClose={() => { if (!busy) cancelLeave(); }}
       title={t("extensions.save.leaveTitle")} centered zIndex={90}
-      closeOnClickOutside={!busy} closeOnEscape={!busy}
+      closeOnClickOutside={false} closeOnEscape={!busy}
       closeButtonProps={{ disabled: busy, "aria-label": t("extensions.import.close") }}>
       <Stack gap="sm">
         <Text size="sm">{t("extensions.save.leaveMessage")}</Text>
@@ -105,7 +117,7 @@ export function useMcpSaveWorkflow(enabled: boolean) {
         {failure && <Alert color="red">{failure === "inspect" ? t("extensions.save.inspectFailed") : failure}</Alert>}
         <Group justify="flex-end">
           <Button variant="subtle" disabled={busy} onClick={cancelLeave}>{t("extensions.save.stay")}</Button>
-          <Button variant="light" disabled={busy} onClick={leave}>{t("extensions.save.later")}</Button>
+          <Button variant="light" disabled={busy || !homeIdentity} onClick={discardAndLeave}>{t("extensions.save.later")}</Button>
           <Button loading={state.operation === "save"} disabled={busy} onClick={() => { void save().then(ok => { if (ok) leave(); }); }}>{t("extensions.save.applyLeave")}</Button>
         </Group>
       </Stack>

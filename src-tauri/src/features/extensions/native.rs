@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::{
     adapters,
-    model::{ExtensionCli, McpResource},
+    model::{ExtensionCli, McpConfigFormat, McpResource},
     repository,
 };
 use crate::provider::{global, home};
@@ -16,12 +16,14 @@ use crate::provider::{global, home};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NativePreview {
     cli: ExtensionCli,
+    format: McpConfigFormat,
     path: String,
     fingerprint: String,
     existing_keys: Vec<String>,
     enabled_keys: Vec<String>,
     removed_keys: Vec<String>,
     changed: bool,
+    content: String,
 }
 
 #[derive(Serialize)]
@@ -243,6 +245,13 @@ async fn plan(cli: ExtensionCli) -> Result<Plan, String> {
         .map(|r| r.server_key.clone())
         .collect();
     let desired = merge(cli, base, &resources, &managed)?.into_bytes();
+    let desired_text =
+        std::str::from_utf8(&desired).map_err(|_| "extensions_native_encoding_invalid")?;
+    let content = adapters::redact_projected_content(cli, desired_text)?;
+    let format = match cli {
+        ExtensionCli::Claude => McpConfigFormat::Json,
+        ExtensionCli::Codex | ExtensionCli::Grok => McpConfigFormat::Toml,
+    };
     let mut hash = Sha256::new();
     for bytes in [
         identity.as_bytes(),
@@ -262,12 +271,14 @@ async fn plan(cli: ExtensionCli) -> Result<Plan, String> {
     Ok(Plan {
         view: NativePreview {
             cli,
+            format,
             path,
             fingerprint: format!("{:x}", hash.finalize()),
             existing_keys,
             enabled_keys: enabled.into_iter().collect(),
             removed_keys,
             changed: before.as_deref() != Some(desired.as_slice()),
+            content,
         },
         before,
         desired,
@@ -378,6 +389,59 @@ mod tests {
             assert_eq!(active_keys(cli, toml).unwrap(), vec!["on"]);
             assert!(active_keys(cli, "").unwrap().is_empty());
             assert!(active_keys(cli, "invalid=[").is_err());
+        }
+    }
+
+    #[test]
+    fn native_preview_content_is_redacted_before_ipc() {
+        let resources = adapters::parse_native_config(
+            ExtensionCli::Claude,
+            r#"{"mcpServers":{"demo":{"command":"node","env":{"TOKEN":"managed-secret"}}}}"#,
+        )
+        .unwrap()
+        .resources;
+        for cli in ExtensionCli::all() {
+            let base = if cli == ExtensionCli::Claude {
+                r#"{"oauthToken":"root-secret","theme":"dark","mcpServers":{"foreign":{"command":"external","env":{"KEY":"foreign-secret"}}}}"#
+            } else {
+                "api_key = \"root-secret\"\ntheme = \"dark\"\n[mcp_servers.foreign]\ncommand = \"external\"\n[mcp_servers.foreign.env]\nKEY = \"foreign-secret\"\n"
+            };
+            let desired = merge(cli, base, &resources, &BTreeSet::from(["demo".into()])).unwrap();
+            let content = adapters::redact_projected_content(cli, &desired).unwrap();
+            let format = if cli == ExtensionCli::Claude {
+                McpConfigFormat::Json
+            } else {
+                McpConfigFormat::Toml
+            };
+            let dto = NativePreview {
+                cli,
+                format,
+                path: "test-config".into(),
+                fingerprint: "test-fingerprint".into(),
+                existing_keys: vec!["foreign".into()],
+                enabled_keys: vec!["demo".into()],
+                removed_keys: vec![],
+                changed: true,
+                content,
+            };
+            let serialized = serde_json::to_string(&dto).unwrap();
+            for secret in ["root-secret", "foreign-secret", "managed-secret"] {
+                assert!(desired.contains(secret));
+                assert!(!serialized.contains(secret));
+            }
+            let value = serde_json::to_value(&dto).unwrap();
+            assert_eq!(
+                value["format"],
+                if cli == ExtensionCli::Claude {
+                    "json"
+                } else {
+                    "toml"
+                }
+            );
+            assert!(dto.content.contains("dark"));
+            assert!(dto.content.contains("[redacted]"));
+            let parsed = adapters::parse_native_config(cli, &dto.content).unwrap();
+            assert_eq!(parsed.resources.len(), 2);
         }
     }
     use super::*;

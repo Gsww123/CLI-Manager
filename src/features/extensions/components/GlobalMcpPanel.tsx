@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { useI18n, type TranslationKey } from "../../../shared/i18n/index";
 import { useAppConfirm } from "../../../shared/ui/useAppConfirm";
 import { ExtensionCliToggle } from "./ExtensionCliToggle";
+import { ExtensionCompactRow } from "./ExtensionCompactRow";
 import { ExtensionSortableList } from "./ExtensionSortableList";
 import { McpEditorDialog } from "./McpEditorDialog";
 import {
@@ -135,7 +136,9 @@ export function GlobalMcpPanel({
   return (
     <Stack gap="md">
       {confirmDialog}
-      {nativePreviewOpen && <NativeMcpPanel onClose={() => setNativePreviewOpen(false)} />}
+      {nativePreviewOpen && <NativeMcpPanel onClose={() => setNativePreviewOpen(false)}
+          availableClis={CLI_ORDER.filter((cli) => nativeReady[cli])}
+        />}
       <Group justify="space-between" align="flex-start" wrap="wrap">
         <Stack gap={2}>
           <Text fw={650}>{t("extensions.mcp.title")}</Text>
@@ -179,21 +182,23 @@ export function GlobalMcpPanel({
       ) : (
         <ExtensionSortableList items={filteredResources} itemId={resource => resource.resourceId} kind="mcp" disabled={loading || mcpSave.busy}>
           {(resource, dragHandle) => (
-            <Card key={resource.resourceId} withBorder radius="md" padding="sm" className="min-w-0 border-border/70 bg-surface-container-low">
-              <Group justify="space-between" align="center" wrap="wrap">
-                <Group align="center" wrap="wrap" style={{ flex: "1 1 260px", minWidth: 0 }}>
-                  <Stack gap={3} miw={0} className="min-w-0">
-                    <Group gap="xs" wrap="wrap">
-                      {dragHandle}
-                      <Text fw={650} className="break-words">{resource.name}</Text>
-                      <Badge variant="light">{resource.serverKey}</Badge>
-                      <Badge color="gray">{t(TRANSPORT_KEYS[resource.transport])}</Badge>
-                    </Group>
-                    <Text size="xs" c="dimmed" className="break-all">{sourceLabel(resource, t("extensions.mcp.noSource"))}</Text>
-                  </Stack>
+            <ExtensionCompactRow
+              key={resource.resourceId}
+              leading={dragHandle}
+              name={<span className="block truncate" title={resource.name}>{resource.name}</span>}
+              meta={
+                <Group gap={4} wrap="wrap">
+                  <Badge size="xs" variant="light" className="max-w-full truncate" title={resource.serverKey}>
+                    {resource.serverKey}
+                  </Badge>
+                  <Badge size="xs" color="gray">{t(TRANSPORT_KEYS[resource.transport])}</Badge>
+                  <Text size="xs" c="dimmed" className="min-w-0 max-w-full truncate" title={sourceLabel(resource, t("extensions.mcp.noSource"))}>
+                    {sourceLabel(resource, t("extensions.mcp.noSource"))}
+                  </Text>
                 </Group>
-                <Group gap="xs" wrap="nowrap">
-                <Group gap="xs" wrap="nowrap">
+              }
+              status={
+                <Group gap={4} wrap="nowrap">
                   {CLI_ORDER.map((cli) => {
                     const enabled = resource.enabledByCli?.[cli] ?? false;
                     const toggleKey = `${resource.resourceId}:${cli}`;
@@ -205,21 +210,21 @@ export function GlobalMcpPanel({
                     );
                   })}
                 </Group>
-                  <Group gap={4}>
-                    <Button size="compact-sm" variant="subtle" color="gray" disabled={mcpSave.busy} aria-label={t("extensions.mcp.edit")} title={t("extensions.mcp.edit")} onClick={() => {
-                      setEditorResource(resource);
-                      setEditorOpen(true);
-                    }}>
-                      <Pencil size={15} />
-                    </Button>
-                    <Button size="compact-sm" variant="subtle" color="red" disabled={mcpSave.busy} loading={deleting === resource.resourceId} aria-label={t("extensions.mcp.delete")} title={t("extensions.mcp.delete")} onClick={() => void remove(resource)}>
-                      <Trash2 size={15} />
-                    </Button>
-                  </Group>
-                </Group>
-
-              </Group>
-            </Card>
+              }
+              actions={
+                <>
+                  <Button size="compact-sm" variant="subtle" color="gray" disabled={mcpSave.busy} aria-label={t("extensions.mcp.edit")} title={t("extensions.mcp.edit")} onClick={() => {
+                    setEditorResource(resource);
+                    setEditorOpen(true);
+                  }}>
+                    <Pencil size={15} />
+                  </Button>
+                  <Button size="compact-sm" variant="subtle" color="red" disabled={mcpSave.busy} loading={deleting === resource.resourceId} aria-label={t("extensions.mcp.delete")} title={t("extensions.mcp.delete")} onClick={() => void remove(resource)}>
+                    <Trash2 size={15} />
+                  </Button>
+                </>
+              }
+            />
           )}
         </ExtensionSortableList>
       )}
