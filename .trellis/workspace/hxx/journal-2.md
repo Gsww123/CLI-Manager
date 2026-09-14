@@ -1724,3 +1724,24 @@ Removed the duplicate global Environment & Home editor, reused the provider acti
 ### Status
 
 [OK] **Completed**
+
+
+## Session 121: 完成 MCP 与 Skills 管理 UI 优化
+
+**Date**: 2026-09-14
+**Task**: 完成 MCP 与 Skills 管理 UI 优化
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+完成 MCP/Skills 管理界面与离开提示修复，并通过 TypeScript、扩展测试和架构检查。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b933639` | (see git log) |
+
+### Status
+
+[OK] **Completed**
