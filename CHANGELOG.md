@@ -5,6 +5,7 @@
 ### 版本与发布
 
 - 桌面应用版本统一升级为 `1.4.0`，同步 npm、Rust、Tauri 及锁文件中的应用版本；使用 `V1.4.0` 标签发布 Windows、macOS 和 Linux 安装包及签名更新资源。
+- 修复 Windows 发布流程在 Web 资源生成前运行真实 Codex 代理测试、导致 Tauri 构建找不到 `apps/web/dist/index.html` 的问题；测试前先下载校验 SSH Agent 资源并构建 Web 资源，新增资源准备顺序回归检查。
 
 ### 文件浏览器系统剪贴板粘贴
 
