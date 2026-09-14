@@ -62,3 +62,4 @@ GitNexus：执行 `npx gitnexus analyze` 更新索引；FTS 扩展缺失且 cont
 - 提交前运行 `gitnexus_detect_changes(scope=staged)`，返回 13 个代码文件、1 个已识别符号、风险 low、0 条已识别流程；图索引的符号覆盖仍不完整，结合前次契约/引用核对与本次文件差异验证，不将空流程当作零影响证明。
 - `git diff --cached --check` 通过，无未解决冲突；AGENTS/CLAUDE、依赖清单和锁文件均无本地改动。
 - 功能代码提交：`ca2151a8`（`feat(terminal): fix markdown preview loading and navigation`），仅包含本任务 14 个文件；未推送远程。
+- 用户随后明确要求提交二维码图片，已单独提交 `0cc91a0a`（`docs: update WeChat group QR code`）；保持用户文件内容，系统图像解码验证成功（939 × 1449），不重新编码。
