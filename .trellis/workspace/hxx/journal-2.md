@@ -1683,6 +1683,15 @@ V1.4.0：虚拟化变更树、Worker 建树及刷新合并；64887 文件浏览�
 ### Summary
 
 修复映射输入失焦、Codex 模型预览不一致，并隐藏全局应用指纹。V1.4.0 文档与回归契约已更新。13 项前端测试、17 项 Rust 测试、tsc、cargo check 和严格架构检查通过；用户确认验证通过并授权提交。任务已归档。
+## Session 120: 完成 V1.4.0 MCP 与 Skills 管理主线
+
+**Date**: 2026-09-11
+**Task**: 完成 V1.4.0 MCP 与 Skills 管理主线
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+按模型适配、导入同步、全局管理、项目 Worktree 策略顺序完成 MCP/Skills 主线；通过 Rust 全库单测、扩展单测、TypeScript、架构 strict 与生产构建。WSL、macOS、SSH 端到端及 GUI 手动验证保留发布门禁，Grok 项目策略保持 global-only。
 
 ### Git Commits
 
@@ -1690,6 +1699,73 @@ V1.4.0：虚拟化变更树、Worker 建树及刷新合并；64887 文件浏览�
 |------|---------|
 | `b63acd59` | (see git log) |
 
+| `58fe4b05` | (see git log) |
+| `d9e04ace` | (see git log) |
+| `e606b4f3` | (see git log) |
+| `1b421ec4` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 121: Fix global MCP and Skills provider Home reuse
+
+**Date**: 2026-09-11
+**Task**: Fix global MCP and Skills provider Home reuse
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+Removed the duplicate global Environment & Home editor, reused the provider active Home for Skills/GitHub deployment, scoped Skill installation inspection to the active environment, and removed obsolete extension Home state/API plus translations. Verified TypeScript, architecture, build, extension tests, Rust checks, and reran the one flaky daemon port test successfully.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38b2c468` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 122: 完成 MCP 与 Skills 管理
+
+**Date**: 2026-09-14
+**Task**: 完成 MCP 与 Skills 管理
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+完成 MCP/Skills 全局与项目策略管理、Codex/Claude 启动隔离、导入部署、保存应用和项目弹框布局修复；扩展测试、TypeScript、Rust、生产构建与架构检查通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f71f4974` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 123: 完成 MCP 与 Skills 管理 UI 优化
+
+**Date**: 2026-09-14
+**Task**: 完成 MCP 与 Skills 管理 UI 优化
+**Branch**: `mcp-skill-manager`
+
+### Summary
+
+完成 MCP/Skills 管理界面与离开提示修复，并通过 TypeScript、扩展测试和架构检查。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b933639` | (see git log) |
 
 ### Status
 

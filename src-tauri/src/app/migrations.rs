@@ -736,6 +736,96 @@ pub(crate) const MIGRATION_ADD_SSH_ATTACHMENT_ROOT_DESCRIPTION: &str =
     "add_attachment_root_to_ssh_hosts";
 pub(crate) const MIGRATION_ADD_SSH_ATTACHMENT_ROOT_SQL: &str =
     "ALTER TABLE ssh_hosts ADD COLUMN attachment_root TEXT NOT NULL DEFAULT '';";
+pub(crate) const MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION: i64 = 38;
+pub(crate) const MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_DESCRIPTION: &str =
+    "create_extension_mcp_resources";
+pub(crate) const MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_SQL: &str = "
+                CREATE TABLE IF NOT EXISTS extension_mcp_resources (
+                    resource_id     TEXT PRIMARY KEY NOT NULL,
+                    server_key      TEXT NOT NULL UNIQUE,
+                    name            TEXT NOT NULL,
+                    definition_json TEXT NOT NULL,
+                    source_kind     TEXT NOT NULL DEFAULT '',
+                    source_identity TEXT NOT NULL DEFAULT '',
+                    revision        INTEGER NOT NULL DEFAULT 1,
+                    created_at      INTEGER NOT NULL,
+                    updated_at      INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_extension_mcp_resources_updated_at
+                    ON extension_mcp_resources(updated_at DESC, resource_id ASC);
+              ";
+pub(crate) const MIGRATION_CREATE_EXTENSION_SKILLS_VERSION: i64 = 39;
+pub(crate) const MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION: &str =
+    "create_extension_skill_management";
+pub(crate) const MIGRATION_CREATE_EXTENSION_SKILLS_SQL: &str = "
+                CREATE TABLE IF NOT EXISTS extension_skill_packages (
+                    package_id       TEXT PRIMARY KEY NOT NULL,
+                    name             TEXT NOT NULL,
+                    description      TEXT NOT NULL DEFAULT '',
+                    source_kind      TEXT NOT NULL,
+                    source_identity  TEXT NOT NULL,
+                    source_ref       TEXT NOT NULL DEFAULT '',
+                    resolved_commit  TEXT,
+                    subdirectory     TEXT NOT NULL DEFAULT '',
+                    content_hash     TEXT NOT NULL,
+                    version          TEXT,
+                    package_path     TEXT NOT NULL,
+                    created_at       INTEGER NOT NULL,
+                    updated_at       INTEGER NOT NULL,
+                    UNIQUE (source_kind, source_identity, subdirectory, content_hash)
+                );
+                CREATE INDEX IF NOT EXISTS idx_extension_skill_packages_updated_at
+                    ON extension_skill_packages(updated_at DESC, package_id ASC);
+
+                CREATE TABLE IF NOT EXISTS extension_skill_installations (
+                    installation_id  TEXT PRIMARY KEY NOT NULL,
+                    package_id       TEXT NOT NULL,
+                    environment_kind TEXT NOT NULL CHECK (environment_kind IN ('local', 'wsl')),
+                    environment_id   TEXT NOT NULL,
+                    cli              TEXT NOT NULL CHECK (cli IN ('claude', 'codex', 'grok')),
+                    home_path        TEXT NOT NULL,
+                    target_path      TEXT NOT NULL,
+                    requested_mode   TEXT NOT NULL CHECK (requested_mode IN ('auto', 'symlink', 'copy')),
+                    actual_mode      TEXT NOT NULL CHECK (actual_mode IN ('symlink', 'copy')),
+                    link_target      TEXT,
+                    deployed_hash    TEXT NOT NULL,
+                    owned            INTEGER NOT NULL DEFAULT 1 CHECK (owned IN (0, 1)),
+                    external_modified INTEGER NOT NULL DEFAULT 0 CHECK (external_modified IN (0, 1)),
+                    backup_path      TEXT,
+                    created_at       INTEGER NOT NULL,
+                    updated_at       INTEGER NOT NULL,
+                    FOREIGN KEY (package_id) REFERENCES extension_skill_packages(package_id)
+                        ON DELETE CASCADE,
+                    UNIQUE (environment_kind, environment_id, cli, target_path)
+                );
+                CREATE INDEX IF NOT EXISTS idx_extension_skill_installations_package
+                    ON extension_skill_installations(package_id, environment_kind, environment_id);
+                CREATE INDEX IF NOT EXISTS idx_extension_skill_installations_target
+                    ON extension_skill_installations(environment_kind, environment_id, cli, target_path);
+              ";
+
+pub(crate) const MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION: i64 = 40;
+pub(crate) const MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_DESCRIPTION: &str =
+    "create_extension_scope_policies";
+pub(crate) const MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_SQL: &str = "
+                CREATE TABLE IF NOT EXISTS extension_scope_policies (
+                    scope_kind         TEXT NOT NULL CHECK(scope_kind IN ('project', 'worktree')),
+                    scope_id           TEXT NOT NULL,
+                    project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    cli                TEXT NOT NULL CHECK(cli IN ('claude', 'codex', 'grok')),
+                    extension_kind     TEXT NOT NULL CHECK(extension_kind IN ('mcp', 'skill')),
+                    mode               TEXT NOT NULL CHECK(mode IN ('inherit', 'custom')),
+                    selected_ids_json  TEXT NOT NULL DEFAULT '[]',
+                    revision           INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+                    created_at         INTEGER NOT NULL,
+                    updated_at         INTEGER NOT NULL,
+                    PRIMARY KEY (scope_kind, scope_id, cli, extension_kind)
+                );
+                CREATE INDEX IF NOT EXISTS idx_extension_scope_policies_project
+                    ON extension_scope_policies(project_id, scope_kind, scope_id);
+                CREATE INDEX IF NOT EXISTS idx_extension_scope_policies_revision
+                    ON extension_scope_policies(updated_at DESC, revision DESC);
+              ";
 // 按既定版本顺序返回向上迁移注册表，由 SQL 插件在初始化时应用；此函数本身不执行 SQL。
 pub(crate) fn migrations() -> Vec<Migration> {
     vec![
@@ -1063,6 +1153,24 @@ pub(crate) fn migrations() -> Vec<Migration> {
             version: MIGRATION_ADD_SSH_ATTACHMENT_ROOT_VERSION,
             description: MIGRATION_ADD_SSH_ATTACHMENT_ROOT_DESCRIPTION,
             sql: MIGRATION_ADD_SSH_ATTACHMENT_ROOT_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+            description: MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_DESCRIPTION,
+            sql: MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
+            description: MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION,
+            sql: MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION,
+            description: MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_DESCRIPTION,
+            sql: MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_SQL,
             kind: MigrationKind::Up,
         },
     ]

@@ -11,6 +11,8 @@ import { normalizeShellKey } from "../../../shared/platform/shell";
 
 const CODEX_PROFILE_ARG = "--profile";
 const CLAUDE_SETTINGS_ARG = "--settings";
+const CLAUDE_MCP_CONFIG_ARG = "--mcp-config";
+const CLAUDE_STRICT_MCP_CONFIG_ARG = "--strict-mcp-config";
 const CODEX_LIGHT_TUI_THEME_ARG = "-c theme=catppuccin-latte";
 const DIRECT_CODEX_COMMAND_PATTERN = /^(\s*codex(?:\.(?:cmd|exe|ps1))?)(?=\s|$)/i;
 const DIRECT_GROK_COMMAND_PATTERN = /^(\s*grok(?:\.(?:cmd|exe|ps1))?)(?=\s|$)/i;
@@ -26,6 +28,14 @@ function hasProfileArg(command: string): boolean {
 
 function hasClaudeSettingsArg(command: string): boolean {
   return new RegExp(`(^|\\s)${CLAUDE_SETTINGS_ARG}(\\s|$)`).test(command);
+}
+
+function hasClaudeMcpConfigArg(command: string): boolean {
+  return new RegExp(`(^|\\s)${CLAUDE_MCP_CONFIG_ARG}(\\s|$)`).test(command);
+}
+
+function hasClaudeStrictMcpConfigArg(command: string): boolean {
+  return new RegExp(`(^|\\s)${CLAUDE_STRICT_MCP_CONFIG_ARG}(\\s|$)`).test(command);
 }
 
 function quoteCliArg(value: string): string {
@@ -141,6 +151,27 @@ export function withClaudeSettingsPath(
     return normalizedCommand || undefined;
   }
   return `${normalizedCommand} ${CLAUDE_SETTINGS_ARG} ${quoteCliArg(settingsPathForShell(normalizedPath, shell))}`;
+}
+
+/**
+ * Add a CLI-Manager-owned Claude MCP projection to a direct Claude command.
+ * Commands that already choose an MCP config are left for the user to resolve;
+ * returning undefined lets the launch layer report the project policy as not applied.
+ */
+export function withClaudeMcpConfigPath(
+  command: string | undefined,
+  configPath: string | undefined,
+  shell?: string | null,
+): string | undefined {
+  const normalizedCommand = command?.trim();
+  const normalizedPath = configPath?.trim();
+  if (!normalizedCommand || !normalizedPath || hasClaudeMcpConfigArg(normalizedCommand)) {
+    return hasClaudeMcpConfigArg(normalizedCommand ?? "") ? undefined : normalizedCommand || undefined;
+  }
+  const strictArg = hasClaudeStrictMcpConfigArg(normalizedCommand)
+    ? ""
+    : ` ${CLAUDE_STRICT_MCP_CONFIG_ARG}`;
+  return `${normalizedCommand} ${CLAUDE_MCP_CONFIG_ARG} ${quoteCliArg(settingsPathForShell(normalizedPath, shell))}${strictArg}`;
 }
 
 export function resolveProjectStartupCommand(

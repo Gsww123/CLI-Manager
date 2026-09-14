@@ -29,6 +29,10 @@ pub(crate) use app::migrations::{
 pub(crate) use app::migrations::{
     MIGRATION_ADD_NODE_APPEARANCE_VERSION, MIGRATION_ADD_SSH_CONFIG_FILE_SQL,
     MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION, MIGRATION_CREATE_SSH_AGENT_INTEGRATIONS_SQL,
+    MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+    MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION,
+    MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION, MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
+    MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
     MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
 };
 
@@ -36,6 +40,8 @@ pub(crate) use app::migrations::{
 pub mod app_paths;
 #[path = "features/providers/ccswitch_db.rs"]
 mod ccswitch_db;
+#[path = "features/extensions/mod.rs"]
+pub(crate) mod extensions;
 #[path = "features/hooks/claude.rs"]
 mod claude_hook;
 #[path = "features/codex-proxy/mod.rs"]
@@ -563,6 +569,35 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::agent_capabilities::agent_capabilities_inspect,
             commands::agent_capabilities::agent_capabilities_probe,
+            commands::extensions::extensions_mcp_capabilities,
+            commands::extensions::extensions_mcp_native_preview,
+            commands::extensions::extensions_mcp_native_status,
+            commands::extensions::extensions_mcp_set_selection,
+            commands::extensions::extensions_mcp_native_apply,
+            commands::extensions::extensions_mcp_validate,
+            commands::extensions::extensions_mcp_parse_native,
+            commands::extensions::extensions_mcp_preview,
+            commands::extensions::extensions_mcp_list,
+            commands::extensions::extensions_mcp_get,
+            commands::extensions::extensions_mcp_upsert,
+            commands::extensions::extensions_mcp_set_enabled,
+            commands::extensions::extensions_mcp_delete,
+            commands::extensions::extensions_import_preview,
+            commands::extensions::extensions_import_apply,
+            commands::extensions::extensions_skills_list_packages,
+            commands::extensions::extensions_skills_inventory,
+            commands::extensions::extensions_skills_list_installations,
+            commands::extensions::extensions_skills_deploy,
+            commands::extensions::extensions_skills_uninstall,
+            commands::extensions::extensions_skills_restore,
+            commands::extensions::extensions_github_skill_preview,
+            commands::extensions::extensions_github_skill_install,
+            commands::extensions::extensions_github_skill_cancel,
+            commands::extensions::extensions_project_policy_get,
+            commands::extensions::extensions_project_policy_save,
+            commands::extensions::extensions_project_policy_prepare,
+            commands::extensions::extensions_project_policy_release_snapshot,
+            commands::extensions::extensions_project_policy_gc_snapshots,
             commands::opencode_hook::opencode_hook_status,
             commands::opencode_hook::opencode_hook_install,
             commands::opencode_hook::opencode_hook_uninstall,
@@ -1296,6 +1331,11 @@ mod provider_migration_tests {
         MIGRATION_ADD_PROJECT_PATH_MODE_VERSION, MIGRATION_ADD_SSH_ATTACHMENT_ROOT_VERSION,
         MIGRATION_ADD_USAGE_ERROR_DETAIL_VERSION,
         MIGRATION_BACKFILL_REQUEST_LOG_PROJECT_PATH_VERSION,
+        MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION,
+        MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION,
+        MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION,
+        MIGRATION_CREATE_EXTENSION_SKILLS_SQL,
+        MIGRATION_CREATE_EXTENSION_SKILLS_VERSION,
         MIGRATION_CREATE_HISTORY_GENERATED_TITLES_VERSION,
         MIGRATION_MATERIALIZE_REQUEST_LOG_PROJECT_PATH_VERSION,
     };
@@ -1414,11 +1454,68 @@ mod provider_migration_tests {
         assert!(node_appearance_migration.version < group_bound_path_migration.version);
         assert!(group_bound_path_migration.version < project_path_mode_migration.version);
         assert!(project_path_mode_migration.version < ssh_attachment_root_migration.version);
+        let extension_mcp_migration = registry
+            .iter()
+            .find(|migration| {
+                migration.version == MIGRATION_CREATE_EXTENSION_MCP_RESOURCES_VERSION
+            })
+            .expect("extension MCP migration must be registered");
+        assert_eq!(extension_mcp_migration.version, 38);
+        assert!(extension_mcp_migration
+            .sql
+            .contains("CREATE TABLE IF NOT EXISTS extension_mcp_resources"));
+        assert!(extension_mcp_migration
+            .sql
+            .contains("idx_extension_mcp_resources_updated_at"));
+        let extension_skill_migration = registry
+            .iter()
+            .find(|migration| migration.version == MIGRATION_CREATE_EXTENSION_SKILLS_VERSION)
+            .expect("extension skill migration");
+        assert_eq!(
+            extension_skill_migration.description,
+            MIGRATION_CREATE_EXTENSION_SKILLS_DESCRIPTION
+        );
+        assert!(extension_mcp_migration.version < extension_skill_migration.version);
+        assert_eq!(extension_skill_migration.sql, MIGRATION_CREATE_EXTENSION_SKILLS_SQL);
+        assert!(extension_skill_migration
+            .sql
+            .contains("CREATE TABLE IF NOT EXISTS extension_skill_packages"));
+        assert!(extension_skill_migration
+            .sql
+            .contains("CREATE TABLE IF NOT EXISTS extension_skill_installations"));
+        let scope_policy_migration = registry
+            .iter()
+            .find(|migration| migration.version == MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION)
+            .expect("extension scope policy migration must be registered");
+        assert_eq!(scope_policy_migration.version, 40);
+        assert!(extension_skill_migration.version < scope_policy_migration.version);
         assert!(registry
             .iter()
-            .all(|migration| migration.version <= ssh_attachment_root_migration.version));
+            .all(|migration| migration.version <= scope_policy_migration.version));
         assert!(registry.iter().any(|migration| migration.version == 29
             && migration.description == "optimize_unified_usage_record_queries"));
+    }
+}
+
+#[cfg(test)]
+mod extension_scope_policy_migration_tests {
+    use super::{migrations, MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION};
+
+    #[test]
+    // 验证项目/Worktree 扩展策略迁移登记在 Skill 迁移之后且包含受约束的策略表。
+    fn scope_policy_migration_is_registered_after_extension_baseline() {
+        let registry = migrations();
+        let migration = registry
+            .iter()
+            .find(|migration| migration.version == MIGRATION_CREATE_EXTENSION_SCOPE_POLICIES_VERSION)
+            .expect("extension scope policy migration must be registered");
+        assert_eq!(migration.version, 40);
+        assert_eq!(migration.description, "create_extension_scope_policies");
+        assert!(migration
+            .sql
+            .contains("PRIMARY KEY (scope_kind, scope_id, cli, extension_kind)"));
+        assert!(migration.sql.contains("CHECK(mode IN ('inherit', 'custom'))"));
+        assert!(migration.sql.contains("REFERENCES projects(id) ON DELETE CASCADE"));
     }
 }
 

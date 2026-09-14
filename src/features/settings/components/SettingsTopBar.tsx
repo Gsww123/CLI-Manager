@@ -1,4 +1,5 @@
 import { TextInput } from "@mantine/core";
+import type { ReactNode } from "react";
 import { Search } from "../../../shared/ui/icons";
 import { useI18n } from "../../../shared/i18n/index";
 
@@ -9,6 +10,7 @@ interface SettingsTopBarProps {
   searchPlaceholder?: string;
   onSearchChange: (nextValue: string) => void;
   onClose: () => void;
+  searchReplacement?: ReactNode;
 }
 
 export function SettingsTopBar({
@@ -18,11 +20,12 @@ export function SettingsTopBar({
   searchPlaceholder,
   onSearchChange,
   onClose,
+  searchReplacement,
 }: SettingsTopBarProps) {
   const { t } = useI18n();
 
   return (
-    <header className="ui-settings-topbar ui-surface-base ui-glass z-10 border-b border-border px-4 py-3 min-[1280px]:px-6 min-[1280px]:py-4">
+    <header className="ui-settings-topbar ui-surface-base ui-glass shrink-0 z-10 border-b border-border px-4 py-3 min-[1280px]:px-6 min-[1280px]:py-4">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h2 className="truncate text-base font-medium text-on-surface min-[1280px]:text-lg">{title}</h2>
@@ -40,7 +43,7 @@ export function SettingsTopBar({
         >
           {t("common.close")}
         </button>
-        {searchPlaceholder && (
+        {searchReplacement ? <div className="col-span-2 min-w-0">{searchReplacement}</div> : searchPlaceholder && (
           <TextInput
             value={searchValue}
             onChange={(event) => onSearchChange(event.currentTarget.value)}

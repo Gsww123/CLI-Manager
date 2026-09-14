@@ -85,6 +85,8 @@ struct SnapshotManifest {
     snapshot_id: String,
     grok_base_url: Option<String>,
     grok_model: Option<String>,
+    #[serde(default)]
+    codex_config_overrides: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -736,6 +738,7 @@ fn write_snapshot_bundle(
             snapshot_id: snapshot_id.to_string(),
             grok_base_url,
             grok_model: grok_model.clone(),
+            codex_config_overrides: config_overrides.clone(),
         },
     )?;
     Ok((
@@ -771,6 +774,22 @@ pub(crate) async fn resolve(input: ScopeResolveInput) -> Result<ResolvedProvider
         provider_name: selection.provider.name,
         source: selection.source.to_string(),
     })
+}
+
+// 读取当前 Codex 供应商快照中已校验的非秘密配置覆盖，供项目扩展 profile 合并使用。
+// 不重新查询数据库，确保项目 profile 与同一次启动注入的供应商快照保持一致。
+pub(crate) fn codex_config_overrides_for_snapshot(
+    snapshot_id: &str,
+    provider_id: &str,
+) -> Result<Vec<String>, String> {
+    let (_, manifest) = read_manifest("codex", snapshot_id.trim())?;
+    if manifest.app_type != "codex"
+        || manifest.provider_id != provider_id.trim()
+        || manifest.snapshot_id != snapshot_id.trim()
+    {
+        return Err("provider_snapshot_mismatch".to_string());
+    }
+    Ok(manifest.codex_config_overrides)
 }
 
 // 无显式或项目覆盖时直接返回 None；否则生成快照，Codex 另写默认配置根中的 profile，失败时尽力清理快照目录。
@@ -1136,6 +1155,9 @@ mod tests {
             fs::read_to_string(root.join(SNAPSHOT_KEY_FILE)).unwrap(),
             "test-secret"
         );
+        let manifest: SnapshotManifest =
+            serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest.codex_config_overrides, overrides);
     }
 
     #[test]

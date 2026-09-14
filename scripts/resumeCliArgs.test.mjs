@@ -82,7 +82,12 @@ const {
 } = await import(
   pathToFileURL(join(tempDir, "resumeCliArgs.mjs")).href
 );
-const { appendResumeCliArgs, withCodexConfigOverrides, withGrokModelOverride } = await import(pathToFileURL(projectStartupPath).href);
+const {
+  appendResumeCliArgs,
+  withCodexConfigOverrides,
+  withCodexProfile,
+  withGrokModelOverride,
+} = await import(pathToFileURL(projectStartupPath).href);
 const { buildResumeCliArgs } = await import(pathToFileURL(saveSessionPath).href);
 const { buildHistoryResumeCommand, buildRemoteHandoffResumeCommand, stripPiResumeCliArgs, stripKimiResumeCliArgs } = await import(
   pathToFileURL(historyResumeCommandPath).href
@@ -239,6 +244,33 @@ test("scoped Codex overrides keep the real CODEX_HOME and prepend safe config ar
   assert.throws(
     () => withCodexConfigOverrides("codex", ["model='$(whoami)'"]),
     /provider_codex_override_invalid/,
+  );
+});
+
+test("scoped Codex command can carry provider and project MCP overrides together", () => {
+  const command = withCodexConfigOverrides("codex", [
+    "model_provider='cli_manager_scope'",
+    "model_providers.cli_manager_scope.env_key='CLI_MANAGER_PROVIDER_KEY'",
+    "mcp_servers.exa_web_search.url='''https://mcp.exa.ai/mcp'''",
+    "mcp_servers.exa_web_search.enabled=true",
+    "skills.config=[{path='''C:/skills/doc/SKILL.md',enabled=true}]",
+  ]);
+
+  assert.equal(
+    command,
+    `codex -c "model_provider='cli_manager_scope'" -c "model_providers.cli_manager_scope.env_key='CLI_MANAGER_PROVIDER_KEY'" -c "mcp_servers.exa_web_search.url='''https://mcp.exa.ai/mcp'''" -c "mcp_servers.exa_web_search.enabled=true" -c "skills.config=[{path='''C:/skills/doc/SKILL.md',enabled=true}]"`,
+  );
+  assert.equal(command.includes("--profile"), false);
+});
+
+test("scoped Codex project profile keeps the launch command compact", () => {
+  assert.equal(
+    withCodexProfile("codex", "cli-manager-project-123"),
+    "codex --profile cli-manager-project-123",
+  );
+  assert.equal(
+    withCodexProfile("codex resume session-1", "cli-manager-project-123"),
+    "codex --profile cli-manager-project-123 resume session-1",
   );
 });
 
