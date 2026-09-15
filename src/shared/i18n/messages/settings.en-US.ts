@@ -597,7 +597,7 @@ export const en: Record<keyof typeof zh, string> = {
   "settings.webServer.securityTitle": "Login security",
   "settings.webServer.securityDescription": "The administrator account signs in to the Web page. Passwords are stored in the system credential store.",
   "settings.webServer.bind": "Bind address",
-  "settings.webServer.bindHint": "Use 127.0.0.1, a local LAN/virtual-adapter IP, or 0.0.0.0 for all IPv4 interfaces.",
+  "settings.webServer.bindHint": "Loopback, LAN/virtual-adapter IP, or 0.0.0.0.",
   "settings.webServer.port": "Listening port",
   "settings.webServer.allowedOrigin": "Browser URL / domain",
   "settings.webServer.allowedOriginHint": "Enter the browser scheme, IP or domain, and port, e.g. https://cli.example.com. Nginx can proxy to local HTTP; path-prefix hosting is not supported.",

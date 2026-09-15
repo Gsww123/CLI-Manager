@@ -595,7 +595,7 @@ export const zh = {
   "settings.webServer.securityTitle": "登录安全",
   "settings.webServer.securityDescription": "管理员账号用于登录 Web 页面，密码会安全保存在系统凭据存储中。",
   "settings.webServer.bind": "监听地址",
-  "settings.webServer.bindHint": "可填写 127.0.0.1、本机局域网/虚拟网卡 IP，或 0.0.0.0 监听所有 IPv4 网卡。",
+  "settings.webServer.bindHint": "回环地址、局域网/虚拟网卡 IP，或 0.0.0.0。",
   "settings.webServer.port": "监听端口",
   "settings.webServer.allowedOrigin": "浏览器访问地址 / 域名",
   "settings.webServer.allowedOriginHint": "填写浏览器实际访问的协议、IP 或域名及端口，例如 https://cli.example.com。Nginx 转发到本机 HTTP 即可；暂不支持子路径挂载。",

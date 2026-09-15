@@ -144,7 +144,7 @@ export function WebServerSettingsSection() {
       </Stack>
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" mt="sm">
         <TextInput label={t("settings.webServer.adminUsername")} value={adminUsername} onChange={(event) => setAdminUsername(event.currentTarget.value)} />
-        <PasswordInput label={t("settings.webServer.adminPassword")} description={t("settings.webServer.adminPasswordHint")} value={adminPassword} onChange={(event) => setAdminPassword(event.currentTarget.value)} placeholder={t("settings.webServer.passwordUnchanged")} />
+        <PasswordInput label={t("settings.webServer.adminPassword")} value={adminPassword} onChange={(event) => setAdminPassword(event.currentTarget.value)} placeholder={t("settings.webServer.passwordUnchanged")} />
       </SimpleGrid>
     </Card>
   );
