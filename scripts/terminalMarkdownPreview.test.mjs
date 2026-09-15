@@ -6,6 +6,10 @@ const previewSource = readFileSync(
   new URL("../src/features/terminal/components/TerminalMarkdownPreview.tsx", import.meta.url),
   "utf8",
 );
+const answerSelectSource = readFileSync(
+  new URL("../src/features/terminal/components/MarkdownPreviewAnswerSelect.tsx", import.meta.url),
+  "utf8",
+);
 const markdownSource = readFileSync(
   new URL("../src/shared/lib/markdownSource.ts", import.meta.url),
   "utf8",
@@ -61,14 +65,16 @@ test("markdown preview can select every assistant response and unwrap source fen
   assert.match(previewSource, /import \{ unwrapFencedMarkdown \} from "\.\.\/\.\.\/\.\.\/shared\/lib\/markdownSource"/);
   assert.doesNotMatch(previewSource, /const MARKDOWN_SOURCE_FENCE/);
   assert.match(previewSource, /unwrapFencedMarkdown\(selectedMessage\.content\)/);
-  assert.match(previewSource, /terminal-markdown-preview-message-select/);
+  assert.match(answerSelectSource, /terminal-markdown-preview-message-select/);
   assert.match(previewSource, /terminal\.markdownPreview\.answerOption/);
   assert.match(i18nSource, /terminal\.markdownPreview\.selectAnswer/);
 });
 
 test("markdown preview supports themed answer scrolling, wheel zoom, and restored sessions", () => {
-  assert.match(previewSource, /@radix-ui\/react-select/);
-  assert.match(previewSource, /ui-thin-scroll max-h-\[220px\]/);
+  assert.match(answerSelectSource, /@radix-ui\/react-select/);
+  assert.match(answerSelectSource, /ui-thin-scroll terminal-markdown-preview-answer-viewport/);
+  assert.match(answerSelectSource, /ui-subagent-scrollbar-thumb/);
+  assert.match(answerSelectSource, /--radix-select-content-available-height/);
   assert.match(previewSource, /event\.ctrlKey \&\& !event\.metaKey|!event\.ctrlKey \|\| !event\.metaKey/);
   assert.match(previewSource, /MARKDOWN_PREVIEW_FONT_SIZE_MIN/);
   assert.match(previewSource, /onWheel=\{handlePreviewWheel\}/);

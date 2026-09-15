@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type WheelEvent as ReactWheelEvent } from "react";
-import * as SelectPrimitive from "@radix-ui/react-select";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n, type AppLanguage } from "../../../shared/i18n/index";
 import { unwrapFencedMarkdown } from "../../../shared/lib/markdownSource";
@@ -18,10 +17,12 @@ import {
 } from "../../history/index";
 import { useTerminalStore } from "../state";
 import { useWorktreeStore } from "../../projects/api/worktreeStore";
-import { Check, ChevronDown } from "lucide-react";
+import { ArrowDown, ArrowDownToLine } from "lucide-react";
 import { FileText, RefreshCw, X } from "../../../shared/ui/icons";
 import { SessionTranscriptContent } from "../../history/api/SessionTranscriptContent";
 import { FontSizeControl, useFontSizeControlVisibility } from "../../../shared/ui/FontSizeControl";
+import { MarkdownPreviewAnswerSelect, type MarkdownPreviewMessage } from "./MarkdownPreviewAnswerSelect";
+import { useMarkdownPreviewScroll } from "../hooks/useMarkdownPreviewScroll";
 
 const LOCAL_RETRY_DELAYS_MS = [0, 180, 420];
 type PreviewError = "noSession" | "loadFailed";
@@ -60,13 +61,6 @@ export function isTerminalMarkdownPreviewSupported(
   return resolveTerminalMarkdownSource(session, project) !== null;
 }
 
-interface MarkdownPreviewMessage {
-  messageIndex: number;
-  order: number;
-  content: string;
-  timestamp: string | null;
-}
-
 function selectAssistantMarkdownMessages(detail: HistorySessionDetail): MarkdownPreviewMessage[] {
   const messages: MarkdownPreviewMessage[] = [];
   for (let messageIndex = 0; messageIndex < detail.messages.length; messageIndex += 1) {
@@ -88,79 +82,6 @@ const MARKDOWN_PREVIEW_FONT_SIZE_MAX = 32;
 function formatPreviewMessageTime(timestamp: string | null, language: AppLanguage): string {
   const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
   return Number.isFinite(parsed) ? formatTime(parsed, language) : "—";
-}
-
-interface MarkdownPreviewAnswerSelectProps {
-  messages: readonly MarkdownPreviewMessage[];
-  selectedMessageIndex: number | null;
-  onSelect: (messageIndex: number) => void;
-  formatOption: (message: MarkdownPreviewMessage) => string;
-  ariaLabel: string;
-  title: string;
-  terminalPreviewStyle: CSSProperties;
-}
-
-function MarkdownPreviewAnswerSelect({
-  messages,
-  selectedMessageIndex,
-  onSelect,
-  formatOption,
-  ariaLabel,
-  title,
-  terminalPreviewStyle,
-}: MarkdownPreviewAnswerSelectProps) {
-  const selectedValue = selectedMessageIndex ?? messages[0]?.messageIndex;
-  if (selectedValue == null) return null;
-
-  return (
-    <SelectPrimitive.Root
-      value={String(selectedValue)}
-      onValueChange={(value) => onSelect(Number(value))}
-    >
-      <SelectPrimitive.Trigger
-        className="terminal-markdown-preview-message-select ui-focus-ring inline-flex min-w-0 max-w-[48%] items-center justify-between gap-1 rounded-md px-1.5 py-1 text-[10px] outline-none"
-        aria-label={ariaLabel}
-        title={title}
-      >
-        <span className="min-w-0 flex-1 truncate text-left">
-          <SelectPrimitive.Value />
-        </span>
-        <SelectPrimitive.Icon asChild>
-          <ChevronDown size={11} className="shrink-0 opacity-70 transition-transform data-[state=open]:rotate-180" aria-hidden="true" />
-        </SelectPrimitive.Icon>
-      </SelectPrimitive.Trigger>
-      <SelectPrimitive.Portal>
-        <SelectPrimitive.Content
-          position="popper"
-          align="end"
-          sideOffset={4}
-          className="terminal-markdown-preview-answer-popover z-[1000] overflow-hidden rounded-md border py-1 text-[10px] shadow-lg"
-          style={{
-            ...terminalPreviewStyle,
-            width: "var(--radix-select-trigger-width)",
-            maxHeight: 228,
-          }}
-        >
-          <SelectPrimitive.Viewport className="ui-thin-scroll max-h-[220px] overflow-y-auto p-0">
-            {messages.map((message) => (
-              <SelectPrimitive.Item
-                key={message.messageIndex}
-                value={String(message.messageIndex)}
-                className="terminal-markdown-preview-answer-option relative flex cursor-pointer items-center gap-2 outline-none"
-              >
-                <SelectPrimitive.ItemText asChild>
-                  <span className="min-w-0 flex-1 truncate">{formatOption(message)}</span>
-                </SelectPrimitive.ItemText>
-                <SelectPrimitive.ItemIndicator asChild>
-                  <Check size={11} className="shrink-0" aria-hidden="true" />
-                </SelectPrimitive.ItemIndicator>
-              </SelectPrimitive.Item>
-            ))}
-          </SelectPrimitive.Viewport>
-        </SelectPrimitive.Content>
-      </SelectPrimitive.Portal>
-    </SelectPrimitive.Root>
-  );
 }
 
 interface TerminalMarkdownPreviewProps {
@@ -209,12 +130,14 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
   const remoteContextRef = useRef<SshAgentHistoryContext | null>(null);
   const requestSeqRef = useRef(0);
   const loadedTriggerRef = useRef<string | null>(null);
+  const previewSessionKey = JSON.stringify([sessionId, cliSessionId, source, lookupProjectPath, isSshProject]);
   const previewLoadTrigger = `${cliSessionId ?? ""}:${source ?? ""}:${lookupProjectPath}:${hookStatus}:${hookUpdatedAt ?? ""}`;
   const selectedMessage = useMemo(
     () => previewMessages.find((message) => message.messageIndex === selectedMessageIndex) ?? null,
     [previewMessages, selectedMessageIndex],
   );
   const content = selectedMessage ? unwrapFencedMarkdown(selectedMessage.content) : null;
+  const previewScroll = useMarkdownPreviewScroll({ open, sessionKey: previewSessionKey, selectedMessageIndex, content });
   useEffect(() => setFontSize(uiFontSize), [uiFontSize]);
 
   const handlePreviewWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
@@ -236,11 +159,21 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
     }).catch(() => undefined);
   }, []);
 
-  useEffect(() => () => {
-    closeRemoteContext(remoteContextRef.current);
-    remoteContextRef.current = null;
-  }, [closeRemoteContext]);
+  // 会话身份切换或卸载时废弃旧请求；新会话不能继承旧回答、滚动意图和远程 consumer。
+  useEffect(() => {
+    loadedTriggerRef.current = null;
+    setPreviewMessages([]);
+    setSelectedMessageIndex(null);
+    setLoading(false);
+    setError(null);
+    return () => {
+      requestSeqRef.current += 1;
+      closeRemoteContext(remoteContextRef.current);
+      remoteContextRef.current = null;
+    };
+  }, [closeRemoteContext, previewSessionKey]);
 
+  // 只提交仍属于当前绑定会话的结果；迟到的远程上下文必须关闭，不能覆盖新 consumer。
   const loadLatest = useCallback(async (trigger: string) => {
     const requestSeq = ++requestSeqRef.current;
     if (!source) return;
@@ -260,7 +193,12 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
         if (isSshProject && project) {
           if (remoteContextRef.current?.launch.projectId !== project.id) {
             closeRemoteContext(remoteContextRef.current);
-            remoteContextRef.current = await buildSshAgentHistoryContext(project);
+            const context = await buildSshAgentHistoryContext(project);
+            if (requestSeq !== requestSeqRef.current) {
+              closeRemoteContext(context);
+              return;
+            }
+            remoteContextRef.current = context;
           }
           const remote = await fetchRemoteLatestProjectSessionDetail(
             remoteContextRef.current,
@@ -268,6 +206,7 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
             cliSessionId,
             session?.remoteTranscriptRef,
           );
+          if (requestSeq !== requestSeqRef.current) return;
           remoteContextRef.current = remote.context;
           detail = remote.result === "unchanged" ? null : remote.result;
         } else if (lookupProjectPath) {
@@ -317,6 +256,18 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
     void loadLatest(previewLoadTrigger);
   }, [hookStatus, loadLatest, open, previewLoadTrigger, source]);
 
+  // 手动选择取消尚未提交的跳转；最新回答使用源消息坐标，不把列表序号当 messageIndex。
+  const selectAnswer = (messageIndex: number) => {
+    previewScroll.cancelScrollIntent();
+    setSelectedMessageIndex(messageIndex);
+  };
+  const jumpToLatestAnswer = () => {
+    const latest = previewMessages[previewMessages.length - 1];
+    if (!latest) return;
+    previewScroll.requestScrollToBottom(latest.messageIndex);
+    setSelectedMessageIndex(latest.messageIndex);
+  };
+
   if (!open) return null;
 
   return (
@@ -331,16 +282,27 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
           <MarkdownPreviewAnswerSelect
             messages={previewMessages}
             selectedMessageIndex={selectedMessageIndex}
-            onSelect={setSelectedMessageIndex}
+            onSelect={selectAnswer}
             formatOption={(message) => t("terminal.markdownPreview.answerOption", {
               index: message.order,
               time: formatPreviewMessageTime(message.timestamp, language),
             })}
             ariaLabel={t("terminal.markdownPreview.selectAnswer")}
             title={t("terminal.markdownPreview.selectAnswer")}
+            jumpToEndLabel={t("terminal.markdownPreview.jumpToListEnd")}
             terminalPreviewStyle={terminalPreviewStyle}
           />
         )}
+        <button
+          type="button"
+          onClick={jumpToLatestAnswer}
+          disabled={previewMessages.length === 0}
+          className="ui-focus-ring inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition hover:bg-[var(--interactive-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40"
+          aria-label={t("terminal.markdownPreview.latestAnswer")}
+          title={t("terminal.markdownPreview.latestAnswer")}
+        >
+          <ArrowDownToLine size={13} aria-hidden="true" />
+        </button>
         <button
           type="button"
           onClick={() => void loadLatest(previewLoadTrigger)}
@@ -363,7 +325,11 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
       </header>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
-          className="ui-scrollbar h-full overflow-auto px-4 py-3"
+          ref={previewScroll.scrollRef}
+          className="ui-scrollbar ui-focus-ring h-full overflow-auto px-4 py-3"
+          role="region"
+          aria-label={t("terminal.markdownPreview.title")}
+          tabIndex={content ? 0 : -1}
           onWheel={handlePreviewWheel}
           style={{
             "--markdown-preview-font-size": `${fontSize}px`,
@@ -375,12 +341,14 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
               {t("terminal.markdownPreview.loading")}
             </div>
           ) : content ? (
-            <SessionTranscriptContent
-              content={content}
-              variant="terminal"
-              terminalCodeTheme={terminalCodeTheme}
-              markdownClassName="subagent-transcript-markdown"
-            />
+            <div ref={previewScroll.contentRef}>
+              <SessionTranscriptContent
+                content={content}
+                variant="terminal"
+                terminalCodeTheme={terminalCodeTheme}
+                markdownClassName="subagent-transcript-markdown"
+              />
+            </div>
           ) : (
             <div className="flex h-full items-center justify-center px-5 text-center text-xs leading-5 text-[var(--text-muted)]">
               {error === "noSession"
@@ -391,24 +359,39 @@ export function TerminalMarkdownPreview({ sessionId, open, onClose }: TerminalMa
             </div>
           )}
         </div>
-        {fontSizeControlVisible && (
-          <FontSizeControl
-            fontSize={fontSize}
-            defaultFontSize={uiFontSize}
-            min={MARKDOWN_PREVIEW_FONT_SIZE_MIN}
-            max={MARKDOWN_PREVIEW_FONT_SIZE_MAX}
-            onChange={(next) => {
-              showFontSizeControl();
-              setFontSize(next);
-            }}
-            className="absolute bottom-3 right-3 z-20"
-            style={{
-              backgroundColor: "var(--term-panel-card)",
-              borderColor: "var(--term-panel-border)",
-              color: "var(--term-panel-fg)",
-            }}
-            variant="terminal"
-          />
+        {(previewScroll.showScrollToBottom || fontSizeControlVisible) && (
+          <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-2">
+            {previewScroll.showScrollToBottom && (
+              <button
+                type="button"
+                onClick={previewScroll.scrollToBottom}
+                className="terminal-markdown-preview-scroll-to-bottom ui-focus-ring inline-flex h-7 w-7 items-center justify-center rounded-full border backdrop-blur-md transition hover:brightness-110"
+                style={{ backgroundColor: "var(--term-panel-card)", borderColor: "var(--term-panel-border)", color: "var(--term-panel-fg)" }}
+                title={t("terminal.markdownPreview.scrollToBottom")}
+                aria-label={t("terminal.markdownPreview.scrollToBottom")}
+              >
+                <ArrowDown size={14} aria-hidden="true" />
+              </button>
+            )}
+            {fontSizeControlVisible && (
+              <FontSizeControl
+                fontSize={fontSize}
+                defaultFontSize={uiFontSize}
+                min={MARKDOWN_PREVIEW_FONT_SIZE_MIN}
+                max={MARKDOWN_PREVIEW_FONT_SIZE_MAX}
+                onChange={(next) => {
+                  showFontSizeControl();
+                  setFontSize(next);
+                }}
+                style={{
+                  backgroundColor: "var(--term-panel-card)",
+                  borderColor: "var(--term-panel-border)",
+                  color: "var(--term-panel-fg)",
+                }}
+                variant="terminal"
+              />
+            )}
+          </div>
         )}
       </div>
     </aside>

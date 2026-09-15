@@ -1770,3 +1770,35 @@ Removed the duplicate global Environment & Home editor, reused the provider acti
 ### Status
 
 [OK] **Completed**
+
+
+## Session 124: 终端 Markdown 预览加载与滚动导航
+
+**Date**: 2026-09-14
+**Task**: 终端 Markdown 预览加载与滚动导航
+**Branch**: `master`
+
+### Summary
+
+用户验收成功后，快进合并远程 master 的 22 个提交，解决功能清单冲突并保留双方记录，完成 V1.4.0 预览加载修复与滚动导航提交，归档任务；按追加要求单独提交微信群二维码图片。
+
+### Main Changes
+
+- 精确绑定会话查询不等待全局历史刷新；新增可拖动历史滚动条、正文到底、最新回答到底与列表末尾跳转，同步中英翻译和契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ca2151a8` | (see git log) |
+| `0cc91a0a` | (see git log) |
+
+### Testing
+
+- [OK] 合并后 38/38 前端定向测试、7/7 Rust 定向测试通过；前端构建（含 TypeScript）、cargo check --locked、git diff 检查通过。
+- [KNOWN FAILURE] 独立 normal/strict 架构检查仍有远程 master 既有 38 项违规；全部违规文件与合并后的上游一致，本任务无新增违规。用户已确认桌面验证成功。
+- [OK] 提交前运行 GitNexus detect_changes 并结合定向引用与差异核对；二维码图像解码成功，文件内容保持用户版本。
+
+### Status
+
+[OK] **Completed**
