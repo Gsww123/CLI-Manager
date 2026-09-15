@@ -389,7 +389,7 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
         logError("Failed to persist resumed remote handoff session", { sessionId, newSessionId, err });
       }
 
-      if (launch.extensionStatus === "error" || launch.extensionStatus === "globalOnly") {
+      if (launch.extensionStatus === "error") {
         toast.warning(translateCurrent("extensions.project.startupFallbackWarning"));
       }
 
@@ -597,7 +597,7 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
       await useSessionStore.getState().saveActiveSessionId(sessionId);
       await useSessionStore.getState().saveWorkspans(workspans, activeWorkspanId, newSessions);
 
-      if (launch.extensionStatus === "error" || launch.extensionStatus === "globalOnly") {
+      if (launch.extensionStatus === "error") {
         toast.warning(translateCurrent("extensions.project.startupFallbackWarning"));
       }
 
@@ -1033,7 +1033,7 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
       await useSessionStore.getState().saveSplits([]);
       await useSessionStore.getState().saveWorkspans(workspans, currentOwner.id, newSessions);
 
-      if (launch.extensionStatus === "error" || launch.extensionStatus === "globalOnly") {
+      if (launch.extensionStatus === "error") {
         toast.warning(translateCurrent("extensions.project.startupFallbackWarning"));
       }
 
@@ -1713,7 +1713,7 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
             description: `以下会话因项目不存在或创建失败而跳过: ${skippedSessions.join(", ")}`,
           });
         }
-        if (restoredSessions.some((session) => session.extensionLaunchStatus === "error" || session.extensionLaunchStatus === "globalOnly")) {
+        if (restoredSessions.some((session) => session.extensionLaunchStatus === "error")) {
           toast.warning(translateCurrent("extensions.project.startupFallbackWarning"));
         }
         if (restoredSessions.length > 0) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## [V1.4.1] - 2026-09-15
+
+### 设置页交互与扩展策略警告修复
+
+- 修复设置-MCP与Skill管理页面无法用 ESC 键退出的问题：`hasOverlayAboveSettings()` 现在正确区分设置页自身与真正的上层弹框，只有存在 Modal/Dialog 遮罩时才抑制 ESC 关闭。
+- 修复项目未配置扩展策略（Inherit 模式或无记录）时启动终端仍弹出"部分项目扩展策略未能应用"警告的问题：后端现在只在 Custom 模式检测到 invalid IDs 时返回 error 状态，Inherit 与全局 globalOnly 限制静默处理；前端 4 处启动路径（普通创建、远程恢复、分屏、批量恢复）统一移除 globalOnly 警告触发。
+
 ## [TEMP] - 2026-09-14
 
 ### 文件浏览器系统剪贴板粘贴
