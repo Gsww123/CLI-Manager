@@ -17,6 +17,7 @@ export {
   Cloud,
   Coins,
   Copy,
+  Crosshair,
   Minus,
   Cpu,
   Database,
