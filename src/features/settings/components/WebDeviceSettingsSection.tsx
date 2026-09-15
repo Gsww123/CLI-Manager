@@ -131,9 +131,8 @@ export function WebDeviceSettingsSection({ onStatusChange }: Props) {
         <Button size="xs" variant="default" leftSection={<RefreshCw size={14} />} loading={working === "restart"} disabled={busy || !status?.configured} onClick={() => void run("restart", webDeviceApi.restart, "settings.webDevice.toast.restarted")}>{t("settings.webDevice.restart")}</Button>
       </Group>
 
-      {(status?.profile || status?.lastError) && <div className="mt-3 rounded-md border border-border/70 bg-surface-container-low px-3 py-2">
-        {status?.profile && <Text size="xs" c="var(--text-muted)" style={{ overflowWrap: "anywhere" }}>{t("settings.webDevice.clientId")}: {status.profile.clientId}</Text>}
-        {status?.lastError && <Text mt={status.profile ? "xs" : 0} size="xs" c="red" style={{ overflowWrap: "anywhere" }}>{status.lastError}</Text>}
+      {status?.lastError && <div className="mt-3 rounded-md border border-border/70 bg-surface-container-low px-3 py-2">
+        <Text size="xs" c="red" style={{ overflowWrap: "anywhere" }}>{status.lastError}</Text>
       </div>}
 
       <Divider my="md" />
