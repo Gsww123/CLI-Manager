@@ -60,7 +60,7 @@ export function PinnedProjectSection({ projects, density }: PinnedProjectSection
 
       {!collapsed && (
         <div className="ui-pinned-project-list tree-collapse" role="group" aria-label={t("sidebar.pinned.title")}>
-          <div className={compact ? "ml-2 space-y-0.5 pb-0.5" : "ml-2.5 space-y-0.5 pb-1"}>
+          <div className={compact ? "ml-2 space-y-0.5" : "ml-2.5 space-y-0.5"}>
             {projects.map((project) => (
               <PinnedProjectItem key={"pinned:" + project.id} project={project} density={density} />
             ))}

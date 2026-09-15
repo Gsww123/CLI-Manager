@@ -924,8 +924,10 @@
   background-color: var(--surface-container-lowest);
 }
 
+/* 展开态不额外加底部内边距：与折叠态共用「section margin-bottom + 分隔线 margin」同一套分隔带。
+   若在此叠加 padding，展开时分隔带会比折叠态厚（2026-09-15 无头实测：折叠 9px / 展开 20px）。 */
 .ui-pinned-project-list {
-  padding: 0 0 3px;
+  padding: 0;
 }
 
 .ui-pinned-project-item {
