@@ -113,7 +113,7 @@ function PinnedProjectItem({ project, density }: { project: Project; density: "c
       onPointerDownCapture={preventSecondaryPointerFocus}
     >
       <div
-        className={"ui-tree-node ui-tree-project ui-focus-ring flex items-center rounded-xl cursor-pointer group/item " + (
+        className={"ui-tree-node ui-tree-project ui-focus-ring flex items-center rounded-lg cursor-pointer group/item " + (
           compact ? "gap-1.5 py-1 text-[12px]" : "gap-2 py-1.5 text-[13px]"
         )}
         data-selected={selected ? "true" : "false"}
@@ -127,7 +127,7 @@ function PinnedProjectItem({ project, density }: { project: Project; density: "c
         }}
         onClick={(event) => actions.onSelectProject(event, project)}
         onDoubleClick={() => actions.onOpenProject(project)}
-        onContextMenu={(event) => actions.onContextMenuProject(event, project)}
+        onContextMenu={(event) => actions.onContextMenuProject(event, project, true)}
       >
         <span className="ui-tree-leading-icon">
           <NodeAppearanceIcon

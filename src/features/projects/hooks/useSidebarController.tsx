@@ -3,6 +3,7 @@ import { useShallow } from "zustand/shallow";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { invoke } from "@tauri-apps/api/core";
 import { useProjectStore } from "../api/projectStore";
+import { useProjectLocate } from "./useProjectLocate";
 import { useTerminalStore, type SessionStatus } from "../../terminal/state";
 import { useFileExplorerStore } from "../../files/api/fileExplorerStore";
 import { useHistoryStore } from "../../history/index";
@@ -399,7 +400,7 @@ export function useSidebarController({
 
   const [contextMenu, setContextMenu] = useState<
     | null
-    | { kind: "project"; project: Project; x: number; y: number }
+    | { kind: "project"; project: Project; x: number; y: number; fromPinned?: boolean }
     | { kind: "worktree"; project: Project; worktree: WorktreeRecord; x: number; y: number }
     | { kind: "group"; groupId: string; groupName: string; x: number; y: number }
   >(null);
@@ -1596,14 +1597,16 @@ export function useSidebarController({
     setShowAdd(true);
   }, []);
 
-  const handleContextMenuProject = useCallback((e: ReactMouseEvent, project: Project) => {
+  // fromPinned 标识菜单来自置顶区副本：置顶区与列表区是两个兄弟滚动容器，
+  // 其 closest 命中的滚动容器不同，菜单据此决定是否提供「定位位置」。
+  const handleContextMenuProject = useCallback((e: ReactMouseEvent, project: Project, fromPinned?: boolean) => {
     e.preventDefault();
     e.stopPropagation();
     preserveSidebarScrollAfterContextMenu(e, (until) => {
       contextMenuInternalScrollUntilRef.current = until;
     });
     contextMenuOpenedAtRef.current = Date.now();
-    setContextMenu({ kind: "project", project, x: e.clientX, y: e.clientY });
+    setContextMenu({ kind: "project", project, x: e.clientX, y: e.clientY, fromPinned });
   }, []);
 
   const handleContextMenuWorktree = useCallback((e: ReactMouseEvent, project: Project, worktree: WorktreeRecord) => {
@@ -1923,9 +1926,20 @@ export function useSidebarController({
     [contextMenuGroupProjectIds, sessions]
   );
 
+  const { locateRequest, locateProject } = useProjectLocate({
+    tree,
+    projectFilter,
+    setProjectFilter,
+    setCollapsedIds,
+    setSelectedId,
+    onBeforeLocate: () => setContextMenu(null),
+  });
+
   const treeActions = useMemo<TreeActions>(
     () => ({
       selectedId,
+      locateRequest,
+      onLocateProject: locateProject,
       selectedProjectIds,
       selectedGroupIds,
       selectedWorktreeIds,
@@ -1969,6 +1983,8 @@ export function useSidebarController({
     }),
     [
       selectedId,
+      locateRequest,
+      locateProject,
       selectedProjectIds,
       selectedGroupIds,
       selectedWorktreeIds,
