@@ -58,6 +58,7 @@ export {
   Sparkles,
   SquareSplitHorizontal,
   SquareSplitVertical,
+  Star,
   Tag,
   Terminal,
   TerminalSquare,

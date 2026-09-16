@@ -2,6 +2,22 @@
 
 ## [V1.4.1] - 2026-09-15
 
+### 终端 Markdown 预览回答星标
+
+- 终端 Markdown 预览的历史回答列表支持逐条星标：每行右侧提供行内星标按钮。星标按会话持久化，重开预览、切换分屏或重启应用后仍然保留。
+- 列表底部「只看星标」在全部回答与仅星标回答之间切换并显示星标条数，筛选只作用于列表、不改变正文内容。当前回答被筛掉时选择器退化为「已筛选：只看星标」占位文案，而不是回落到第一条星标回答——否则选择器标题与实际渲染的正文会指向不同回答。一条星标都没有时列表显示空态提示。
+- 新增 `message_stars` 表（migration 41，`PRIMARY KEY (session_key, message_index)` + 会话键索引），与会话元数据、收藏快照一致只落本地库，不进 WebDAV 同步。星标行额外冗余记录时间戳：`/rewind`、压缩或对话文件重写会让回答下标整体平移，解析时先按下标 + 时间戳双重校验，失配再按时间戳把星标跟随到回答新位置；回答已不存在时星标失效但不误指到别的回答，行本身保留，回答回来后重新生效。
+- 星标写入为乐观更新，失败回滚并保留原行；取消星标按解析到的真实行删除（星标可能已跟随到新下标），而不是按当前展示位置删除。读取失败不会把会话标成「已加载且没有星标」，后续刷新仍可重试。
+- 星标读 / 写失败不再静默：正文上方显示一条失败提示（`terminal.markdownPreview.starUnavailable`），成功后自动消失。此前失败只写日志，用户看到的是星标「点一下闪一下又消失、完全没有效果」——数据库尚未应用 migration 41 时就是这个表现。
+- 修复上述提示在重启应用后仍然出现的根因：部分历史库（由带旧 `providers` 覆盖表的分支演进而来）的 `_sqlx_migrations` 登记里 25–31 整段缺失，而迁移注册表把 25–26 只留作墓碑。迁移器重放 v25 时，`CREATE TABLE IF NOT EXISTS providers` 因同名旧表已存在而变成空操作，紧接着的 `CREATE INDEX ... ON providers(app_type)` 撞上缺 `app_type` 的旧表报 `no such column: app_type`，整条迁移链当场中止；tauri-plugin-sql 又在跑迁移前就摘掉了该 URL 的迁移登记，因此本次进程后续每次 `Database.load` 都直接返回未迁移的连接池——应用照常运行，但此后**任何**新迁移都再也落不了库，migration 41 只是最先被用户看见的那个。现在 `db_repair_known_migration_drift` 在 `Database.load` 前识别「旧 `providers` 表 + 25–26 未登记」并补登记这两条墓碑迁移的 checksum（描述与校验和直接取自迁移注册表），迁移链恢复推进，41 随之正常应用。
+- 这里选择补登记、而不是按墓碑 SQL 把原型表补建出来：原型表已随分支移除（`providers/service/migration.rs` 明确要求新代码不得再查询或扩展它们），而主库那张旧 `providers` 表当前已无任何读写方——所有按 `app_type` 查 `providers` 的路径（供应商目录、标题生成）都走独立的 `providers.db`，前端亦不再触达主库该表。因此让 sqlx 跳过重放即可，不必给一张死表补列。
+- 顺带消除同源噪声：这条中断此前每次启动都会以 `Failed to load sync store during startup while executing migration 25: no such column: app_type` 的形式出现在日志里。
+- 新增 `src/features/app-data/repair/tests.rs` 用测例固定该自愈的边界：旧覆盖表存在时按墓碑 SQL 的校验和补登记且可重复执行，原型表已落库或根本没有 `providers` 表时不介入（把 25–26 留给标准迁移流程）。
+- 正文右下角的浮动星标入口按用户反馈移除，标记只保留列表行内一处，右下角恢复为只有「回到底部」与字号控件。行内星标仍为 `tabIndex={-1}`，因此键盘无法直接定位列表项内的星标按钮。
+- 与 Radix Select 的交互：行内星标内嵌在 `role="option"` 中，因此吞掉 pointerdown/pointerup/click 及空格/Enter 按键，避免顺带选中该回答并关闭菜单；筛选状态下选择器以 `value=undefined` + placeholder 表达「无匹配项」，不再伪造一个会误导的选中值。
+- 新增文案键 `terminal.markdownPreview.starAnswer` / `unstarAnswer` / `starredOnly` / `showAllAnswers` / `starredFilterActive` / `noStarredAnswers` / `starUnavailable`（中英双语），并复用 `Star` 图标，未新增依赖。
+- 新增 `scripts/messageStars.test.mjs`，覆盖下标+时间戳双重校验、回退后的时间戳跟随、下标复用与回答缺失时的不误指、重复行去重、按会话缓存与读取失败可重试、乐观写入与失败回滚、按真实行取消星标、失败信号的上报与清除；`scripts/terminalMarkdownPreviewNavigation.test.mjs` 增加行内星标的指针隔离、「只看星标」筛选与占位退化、空态与选择器取值断言、失败提示条的显示与消失。
+
 ### Codex 会话用量统计去重
 
 - 修复 Codex 新版 rollout 的用量被重复计入的问题：该格式除累计的 `event_msg/token_count` 外，还会为每个响应写一条 `token_usage_record`，其 `payload.usage` 与同回合 `token_count.last_token_usage` 逐字段相同。扫描现在以累计流高水位差分为唯一用量来源，逐响应记录行整体跳过。
