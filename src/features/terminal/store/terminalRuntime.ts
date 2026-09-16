@@ -408,6 +408,7 @@ export function createTerminalRuntime(
       const cliSessionId = payload.sessionId?.trim();
       const remoteTranscriptRef = payload.environmentType === "ssh" ? payload.remoteTranscriptRef?.trim() : undefined;
       const cliReasoningEffort = payload.reasoningEffort?.trim();
+      const hookWslDistroName = resolveHookWslDistroName(payload);
       let boundNewCliSessionId = false;
       if ((cliSessionId || remoteTranscriptRef || cliReasoningEffort) && get().sessions.some((session) => session.id === tabId)) {
         set((state) => ({
@@ -425,6 +426,10 @@ export function createTerminalRuntime(
                 : {}),
               ...(cliReasoningEffort && session.cliReasoningEffort !== cliReasoningEffort
                 ? { cliReasoningEffort }
+                : {}),
+              // 发行版只在 hook 进程环境里可得（WSL_DISTRO_NAME），落到会话上供能力诊断等请求组装读取。
+              ...(hookWslDistroName && session.wslDistroName !== hookWslDistroName
+                ? { wslDistroName: hookWslDistroName }
                 : {}),
             };
           }),
