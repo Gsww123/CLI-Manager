@@ -1,7 +1,7 @@
 {
   "id": "web-terminal-clipboard-shortcuts",
   "name": "web-terminal-clipboard-shortcuts",
-  "title": "修复 Web 终端 Ctrl+C / Ctrl+V 文字复制粘贴",
+  "title": "修复 Web 终端剪贴板快捷键与自动适配缩放",
   "description": "Web 终端应正确区分文字复制、命令中断、文字粘贴与图片上传，避免 Ctrl+V 被终端程序误认作粘贴图片。",
   "status": "completed",
   "dev_type": "bugfix",
@@ -20,8 +20,8 @@
   "subtasks": [],
   "children": [],
   "parent": null,
-  "relatedFiles": ["apps/web/src/WebTerminal.tsx", "apps/web/src/terminalClipboard.ts", "scripts/webTerminalClipboard.test.mjs"],
-  "notes": "基于最新 origin/master 建分支；剪贴板定向测试 3 项、Web 类型检查和生产构建通过；架构 strict 已有 38 项违规不涉及本轮文件。尚未人工验证真实浏览器。",
+  "relatedFiles": ["apps/web/src/WebTerminal.tsx", "apps/web/src/terminalClipboard.ts", "apps/web/src/terminalDisplay.ts", "apps/web/src/i18n.ts", "scripts/webTerminalClipboard.test.mjs", "scripts/webTerminalDisplay.test.mjs"],
+  "notes": "同一分支追加已批准的适配与缩放解耦。显示与剪贴板定向测试共 8 项通过；Web 类型检查与生产构建通过；git diff --check 通过。架构 strict 仍有原有 38 项违规，本次未新增；构建提示原有大 chunk。memory 已刷新并复核控件调用；GitNexus 无可用索引，以源码与 memory 降级复核。未进行真实浏览器及手机人工验收，未打包或推送。",
   "meta": {},
   "version": "TEMP"
 }
