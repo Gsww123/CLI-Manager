@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { MobileTerminalInput } from "./MobileTerminalInput";
+import { clipboardImageToUpload, isClipboardCopyShortcut, isClipboardPasteShortcut } from "./terminalClipboard";
 import type { TerminalControlMode, TerminalOutputFrame } from "./domain";
 import type { TerminalStream } from "./terminalStream";
 
@@ -156,6 +157,12 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
         : { background: "#111418", foreground: "#edf1f5", cursor: "#ffffff", selectionBackground: "#3d709999" },
     });
     terminal.open(container);
+    terminal.attachCustomKeyEventHandler((event) => {
+      // Let the browser dispatch copy/paste; do not send clipboard shortcuts to the PTY.
+      if (isClipboardPasteShortcut(event)) return false;
+      if (isClipboardCopyShortcut(event, terminal.hasSelection())) return false;
+      return true;
+    });
     // Desktop xterm owns protocol replies even in hidden tabs; Web is a mirror.
     const queryPolicy = installTerminalQueryPolicy(terminal, () => false);
     const colorQueries = createTerminalColorQueryFilter();
@@ -469,7 +476,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
     const container = containerRef.current;
     if (!container) return;
     const onPaste = (event: ClipboardEvent) => {
-      const image = Array.from(event.clipboardData?.files ?? []).find((file) => file.type.startsWith("image/"));
+      const image = clipboardImageToUpload(event.clipboardData);
       if (!image) return;
       event.preventDefault();
       event.stopPropagation();
