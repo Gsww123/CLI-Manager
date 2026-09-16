@@ -2,6 +2,13 @@
 
 ## [V1.4.1] - 2026-09-15
 
+### Codex 会话用量统计去重
+
+- 修复 Codex 新版 rollout 的用量被重复计入的问题：该格式除累计的 `event_msg/token_count` 外，还会为每个响应写一条 `token_usage_record`，其 `payload.usage` 与同回合 `token_count.last_token_usage` 逐字段相同。扫描现在以累计流高水位差分为唯一用量来源，逐响应记录行整体跳过。
+- 此前同一批 token 被计两次：输入与输出翻倍（示例会话真实总 Token 34.1M 显示为 67.7M），且该行的 `cached_input_tokens` 走不到 Codex 归一化路径而落在普通输入上，缓存命中率被稀释到 46%（真实为 91.4%）。
+- 修复后示例会话读数为非缓存输入 2.9M + 缓存命中 30.8M + 输出 402K，与 rollout 自身的累计 `input_tokens`/`output_tokens` 精确一致；实时统计、历史会话详情、历史用量汇总与请求日志同步共用该扫描结果，Token 构成、趋势条数、缓存命中率与费用估算一并恢复。未改动前端展示公式与 Claude、Grok 等其他来源的口径。
+- 同步提升三处缓存代际，让**已存在且不再写入的旧会话**也能重算出正确数字，无需改动或删除任何会话文件：历史索引磁盘快照 `HISTORY_INDEX_CACHE_VERSION` 13→14（快照复用只比对文件指纹，不提升版本会一直留着翻倍的旧结果）、历史 catalog `parser_version` 6→7、请求日志解析器版本 3→4（旧版本失配后按文件删除重插）。代价是升级后首次打开历史会全量重解析一次。
+
 ### 设置页交互与扩展策略警告修复
 
 - 修复设置-MCP与Skill管理页面无法用 ESC 键退出的问题：`hasOverlayAboveSettings()` 现在正确区分设置页自身与真正的上层弹框，只有存在 Modal/Dialog 遮罩时才抑制 ESC 关闭。
