@@ -34,7 +34,7 @@ import {
   isWebManagementOperation,
   validateWebManagementOperation,
   webManagementOperationNeedsConfirmation,
-} from "../../../shared/lib/webManagement";
+} from "../lib/webManagement";
 
 const OPERATION_EVENT = "web-device-operation-ready";
 const WORKSPACE_PUBLISH_MS = 60_000;
