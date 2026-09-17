@@ -1,6 +1,6 @@
-.project-files-dock { position: absolute; top: 0; right: 20px; bottom: 0; width: 300px; z-index: 6; }
-.has-files-dock .web-terminal-frame.active .web-terminal-display { right: 332px; }
-.has-files-dock .web-terminal-frame.active .web-terminal-scroll-bottom { right: 332px; }
+.project-files-dock { position: absolute; top: 0; right: 20px; bottom: 0; width: var(--files-dock-width, 200px); z-index: 6; }
+.has-files-dock .web-terminal-frame.active .web-terminal-display { right: calc(var(--files-dock-width, 200px) + 32px); }
+.has-files-dock .web-terminal-frame.active .web-terminal-scroll-bottom { right: calc(var(--files-dock-width, 200px) + 32px); }
 .project-files { display: flex; flex-direction: column; min-width: 0; height: 100%; min-height: 0; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .project-files-heading { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border); }
 .project-files-heading small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }

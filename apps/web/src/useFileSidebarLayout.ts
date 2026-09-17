@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { canDockFiles } from "./fileSidebarLayout";
+import { canDockFiles, fileDockWidth } from "./fileSidebarLayout";
 
 export function useFileSidebarLayout(sessionId: string | null | undefined, split: boolean) {
   const stackRef = useRef<HTMLDivElement>(null);
-  const [measured, setMeasured] = useState({ sessionId, split, space: false });
+  const [measured, setMeasured] = useState({ sessionId, split, space: false, width: 200 });
   const frame = useRef<number | null>(null);
   const measure = useCallback(() => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -13,13 +13,14 @@ export function useFileSidebarLayout(sessionId: string | null | undefined, split
       const screen = stack?.querySelector<HTMLElement>(".web-terminal-frame.active .xterm-screen");
       const viewport = screen?.closest<HTMLElement>(".web-terminal");
       if (!stack || !screen || !viewport || !screen.offsetWidth) {
-        setMeasured({ sessionId, split, space: false });
+        setMeasured({ sessionId, split, space: false, width: 200 });
         return;
       }
       // The xterm wrapper fills the viewport; the screen reflects actual text width.
       // Horizontally scrollable output must remain accessible rather than be covered.
       const right = screen.getBoundingClientRect().right + 12;
       setMeasured((old) => ({ sessionId, split,
+        width: fileDockWidth(stack.getBoundingClientRect().right - right),
         space: canDockFiles(window.innerWidth, stack.getBoundingClientRect().right, right, split,
           old.sessionId === sessionId && old.space,
           viewport.scrollWidth > viewport.clientWidth + 1) &&
@@ -36,5 +37,6 @@ export function useFileSidebarLayout(sessionId: string | null | undefined, split
       if (frame.current !== null) cancelAnimationFrame(frame.current);
     };
   }, [sessionId, measure]);
-  return { stackRef, space: measured.sessionId === sessionId && measured.split === split && measured.space, measure };
+  return { stackRef, space: measured.sessionId === sessionId && measured.split === split && measured.space,
+    width: measured.width, measure };
 }

@@ -1,4 +1,5 @@
 import { SubagentPanel } from "./SubagentPanel";
+import type { CSSProperties } from "react";
 import OpenAI from "@lobehub/icons/es/OpenAI/components/Mono";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import {
@@ -813,7 +814,8 @@ export function Workbench(props: WorkbenchProps) {
             <TerminalEmpty t={t} canOpen={canOpenTerminal} onOpen={props.onOpenTerminal} />
           ) : null}
           {props.terminalTabs.length > 0 && (
-            <div ref={fileLayout.stackRef} className={`web-terminal-stack${filesDocked ? " has-files-dock" : ""}`}>
+            <div ref={fileLayout.stackRef} className={`web-terminal-stack${filesDocked ? " has-files-dock" : ""}`}
+              style={{ "--files-dock-width": `${fileLayout.width}px` } as CSSProperties}>
               {!props.terminalSessionId && (
                 <TerminalEmpty t={t} canOpen={canOpenTerminal} onOpen={props.onOpenTerminal} />
               )}
