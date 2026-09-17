@@ -937,16 +937,18 @@ function App() {
 
       // SubagentStart / AgentToolStart：开/更新子 Agent 转录分屏，独立于 Tab 状态机与 toast。
       if (supportsLocalSubagentTranscript && (payload.event === "SubagentStart" || payload.event === "AgentToolStart" || isClaudeToolSubagentEvent)) {
-        void useTerminalStore.getState().openSubagentTranscript(payload);
+        void useTerminalStore.getState().openSubagentTranscript(payload, { allowCreate: true });
         return;
       }
       if (supportsLocalSubagentTranscript && payload.event === "AgentToolStop") {
-        void useTerminalStore.getState().openSubagentTranscript(payload);
+        void useTerminalStore.getState().openSubagentTranscript(payload, { allowCreate: true });
         return;
       }
       if (supportsLocalSubagentTranscript && payload.event === "SubagentStop") {
+        // 停止事件只收尾已有面板：Claude Code 会给从未产生转录文件的内部 agent 发 SubagentStop，
+        // 允许它新建面板就是「无故多出一个没有数据的子窗口」。
         if (payload.agentTranscriptPath?.trim() || payload.source === "codex") {
-          void useTerminalStore.getState().openSubagentTranscript(payload).finally(() => {
+          void useTerminalStore.getState().openSubagentTranscript(payload, { allowCreate: false }).finally(() => {
             useTerminalStore.getState().finishSubagentTranscript(payload);
           });
         } else {

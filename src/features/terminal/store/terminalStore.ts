@@ -83,6 +83,7 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
     createPaneId,
     subagentCloseTimers,
     stopSubagentTranscriptRetry,
+    clearPendingSubagentPanesForParent,
     scheduleSaveActiveId,
   } = createTerminalRuntime(set, get, api);
   return {
@@ -637,6 +638,10 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
         subagentCloseTimers.delete(id);
       }
       stopSubagentTranscriptRetry(id, "session_closed");
+      // 关闭父 Tab 时连带丢弃它名下尚未落地的子 Agent 面板登记（没有 UI 可清，只清缓冲与定时器）。
+      if (!isTranscript) {
+        clearPendingSubagentPanesForParent(id);
+      }
 
       // 必须在 set sessions 之前记录原索引，否则后续 findIndex 永远返回 -1，
       // 导致 persistedSplits 永远清不掉（历史 bug）。
@@ -648,7 +653,8 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
       const newTabStatuses = { ...state.tabStatuses };
       const newTabStatusDetails = { ...state.tabStatusDetails };
       const newPtyOutputActivityAt = { ...state.ptyOutputActivityAt };
-      const newSubagentTranscripts = { ...state.subagentTranscripts };
+      // 丢弃待落地面板会写 store，必须重新取快照，否则过期快照会把刚清掉的缓冲写回来。
+      const newSubagentTranscripts = { ...get().subagentTranscripts };
       delete newSubagentTranscripts[id];
       const owner = findWorkspanBySession(state.workspans, id);
       const ownerIndex = owner ? state.workspans.findIndex((workspan) => workspan.id === owner.id) : -1;
@@ -1272,7 +1278,12 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
       const newTabStatuses = { ...state.tabStatuses };
       const newTabStatusDetails = { ...state.tabStatusDetails };
       const newPtyOutputActivityAt = { ...state.ptyOutputActivityAt };
-      const newSubagentTranscripts = { ...state.subagentTranscripts };
+      // 先丢弃这些会话名下尚未落地的子 Agent 面板：它会写 store，
+      // 必须发生在下面取 subagentTranscripts 快照之前，否则刚清掉的缓冲会被写回来。
+      for (const closedSessionId of closedSessionIds) {
+        clearPendingSubagentPanesForParent(closedSessionId);
+      }
+      const newSubagentTranscripts = { ...get().subagentTranscripts };
       const newHidden = new Set(state.hiddenBackgroundSessionIds);
       const newDaemonAttachPending = new Set(state.daemonAttachPendingSessionIds);
       for (const closedSessionId of closedSessionIds) {
