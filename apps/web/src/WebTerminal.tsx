@@ -1,4 +1,5 @@
-import { DEFAULT_DISPLAY, DISPLAY_KEY, normalizeDisplay, readDisplay, stepDisplaySize, zoomDisplayFont, type TerminalDisplay } from "./terminalDisplay";
+import { DEFAULT_DISPLAY, DISPLAY_KEY, normalizeDisplay, readDisplay, stepDisplaySize, type TerminalDisplay } from "./terminalDisplay";
+import { applyTerminalDisplay } from "./terminalLayout";
 import { translate, type TranslationKey } from "./i18n";
 import { installTerminalQueryPolicy } from "../../../src/shared/lib/terminalQueryPolicy";
 import { createTerminalColorQueryFilter } from "../../../src/shared/lib/terminalColorQueryFilter";
@@ -83,6 +84,8 @@ function appendFrame(batches: RenderBatch[], frame: TerminalOutputFrame, reset =
 export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
   const [display, setDisplay] = useState(readDisplay);
   const [actualFontSize, setActualFontSize] = useState<number | null>(null);
+  const webControlled = controlMode === "web";
+  const usesFontSize = webControlled || display.mode === "manual";
   const displayRef = useRef(display);
   displayRef.current = display;
   const shellRef = useRef<HTMLDivElement>(null);
@@ -355,48 +358,32 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       if (availableWidth <= 0 || availableHeight <= 0) return;
       const screen = container.querySelector<HTMLElement>(".xterm-screen");
       const element = terminal.element;
-      const shell = shellRef.current;
-      if (!screen || !element || !shell || !screen.offsetWidth || !screen.offsetHeight) return;
-      // Web ownership keeps its existing automatic grid, based on the OUTER
-      // workspace at 14px. Display controls never feed back into the PTY size.
-      const workspace = `${shell.clientWidth}:${shell.clientHeight}:${window.devicePixelRatio}`;
-      if (controlModeRef.current !== "web") lastReportedSize = "";
-      if (controlModeRef.current === "web" && workspace !== lastReportedSize) {
-        if (draining || replayFrames || renderQueue.length || queuedChunks.length) return;
-        terminal.options.fontSize = 14;
-        lastDesktopLayout = "";
-        const cols = Math.max(2, Math.min(500, Math.floor((shell.clientWidth - 28) / (screen.offsetWidth / terminal.cols))));
-        const rows = Math.max(1, Math.min(300, Math.floor((shell.clientHeight - 10) / (screen.offsetHeight / terminal.rows))));
-        terminal.resize(cols, rows);
-        lastReportedSize = workspace;
-        resizeRef.current(cols, rows);
-      }
+      if (!screen || !element || !screen.offsetWidth || !screen.offsetHeight) return;
+      const ownsSize = controlModeRef.current === "web";
+      if (!ownsSize) lastReportedSize = "";
+      // Replay must be parsed at its recorded grid, not the user's new font grid.
+      if (ownsSize && (draining || replayFrames || renderQueue.length || queuedChunks.length)) return;
       const prefs = displayRef.current;
-      const layout = `${availableWidth}:${availableHeight}:${terminal.cols}:${terminal.rows}:${window.devicePixelRatio}:${prefs.mode}:${prefs.fontSize}:${prefs.zoom}`;
+      const layoutKey = () => `${availableWidth}:${availableHeight}:${terminal.cols}:${terminal.rows}:${window.devicePixelRatio}:${ownsSize}:${prefs.mode}:${prefs.fontSize}:${prefs.zoom}`;
+      const layout = layoutKey();
       if (layout === lastDesktopLayout) return;
       const followBottom = container.scrollHeight - container.clientHeight - container.scrollTop <= 1;
-      const baseFontSize = prefs.mode === "manual" ? prefs.fontSize : 14;
-      terminal.options.fontSize = baseFontSize;
-      const widthLimit = Math.max(1, availableWidth - 16);
-      if (prefs.mode !== "manual") {
-        const ratio = prefs.mode === "width" ? widthLimit / screen.offsetWidth
-          : Math.min(1, widthLimit / screen.offsetWidth, availableHeight / screen.offsetHeight);
-        terminal.options.fontSize = Math.max(1, Math.min(96, Math.floor(baseFontSize * ratio * 10) / 10));
-        // Pixel-rounded row metrics must also keep the last input row visible.
-        for (let attempt = 0; attempt < 32 && terminal.options.fontSize! > 1 &&
-          (screen.offsetWidth > widthLimit || (prefs.mode === "contain" && screen.offsetHeight > availableHeight)); attempt++) {
-          terminal.options.fontSize = Math.max(1, terminal.options.fontSize - 0.1);
+      const result = applyTerminalDisplay(terminal, screen, availableWidth, availableHeight, prefs, ownsSize);
+      if (!result) return;
+      if (ownsSize) {
+        const requested = `${result.cols}:${result.rows}`;
+        if (requested !== lastReportedSize) {
+          lastReportedSize = requested;
+          resizeRef.current(result.cols, result.rows);
         }
-        // Zoom follows fitting so enlargement is not undone by fit correction.
-        terminal.options.fontSize = zoomDisplayFont(terminal.options.fontSize!, prefs.zoom);
       }
-      setActualFontSize(terminal.options.fontSize!);
-      element.style.width = `${screen.offsetWidth + 16}px`;
-      element.style.height = `${screen.offsetHeight}px`;
-      container.dataset.verticalOverflow = String(screen.offsetHeight > availableHeight);
+      setActualFontSize(result.fontSize);
+      element.style.width = `${result.width}px`;
+      element.style.height = `${result.height}px`;
+      container.dataset.verticalOverflow = String(result.height > availableHeight);
       if (followBottom) container.scrollTop = container.scrollHeight;
       setOuterScrolledAway(container.scrollHeight - container.clientHeight - container.scrollTop > 1);
-      lastDesktopLayout = layout;
+      lastDesktopLayout = layoutKey();
     };
     let lastReportedSize = "";
     let lastDesktopLayout = "";
@@ -438,7 +425,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       }
       event.preventDefault();
       event.stopPropagation();
-      if (event.deltaY) updateDisplay(stepDisplaySize(displayRef.current, event.deltaY < 0 ? 1 : -1));
+      if (event.deltaY) updateDisplay(stepDisplaySize(displayRef.current, event.deltaY < 0 ? 1 : -1, controlModeRef.current === "web"));
     };
     container.addEventListener("wheel", zoom, { passive: false, capture: true });
     const resizeFrame = requestAnimationFrame(reportSize);
@@ -590,24 +577,25 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
     <details className="web-terminal-display" onKeyDown={(event) => { if (event.key === "Escape") event.currentTarget.open = false; }}>
       <summary>{t("terminalDisplay")}</summary>
       <div className="web-terminal-display-panel">
-        <p>{t("terminalDisplayHint")}</p>
+        <p>{t(webControlled ? "terminalDisplayResponsiveHint" : "terminalDisplayHint")}</p>
+        {webControlled ? <p data-display-responsive>{t("terminalDisplayResponsive")}</p> :
         <label>{t("terminalDisplayMode")}<select data-display-mode value={display.mode} onChange={(event) => updateDisplay({ mode: event.target.value as TerminalDisplay["mode"] })}>
           <option value="manual">{t("terminalDisplayManual")}</option><option value="width">{t("terminalDisplayWidth")}</option><option value="contain">{t("terminalDisplayContain")}</option>
-        </select></label>
-        <label>{t(display.mode === "manual" ? "terminalDisplayFont" : "terminalDisplayZoom")}
-          <output>{display.mode === "manual" ? `${display.fontSize}px` : `${display.zoom}%`}</output>
-          <input data-display-font type="range" min={display.mode === "manual" ? 8 : 25}
-            max={display.mode === "manual" ? 36 : 300} step={display.mode === "manual" ? 1 : 5}
-            value={display.mode === "manual" ? display.fontSize : display.zoom}
-            onChange={(event) => updateDisplay(display.mode === "manual"
+        </select></label>}
+        <label>{t(usesFontSize ? "terminalDisplayFont" : "terminalDisplayZoom")}
+          <output>{usesFontSize ? `${display.fontSize}px` : `${display.zoom}%`}</output>
+          <input data-display-font type="range" min={usesFontSize ? 8 : 25}
+            max={usesFontSize ? 36 : 300} step={usesFontSize ? 1 : 5}
+            value={usesFontSize ? display.fontSize : display.zoom}
+            onChange={(event) => updateDisplay(usesFontSize
               ? { fontSize: Number(event.target.value) } : { zoom: Number(event.target.value) })} />
         </label>
         <p>{t("terminalDisplayActualFont")}: {actualFontSize === null ? "—" : `${Number(actualFontSize.toFixed(1))}px`}</p>
         <div className="web-terminal-display-buttons">
           <button type="button" aria-label={t("terminalDisplaySmaller")}
-            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, -1))}>−</button>
+            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, -1, webControlled))}>−</button>
           <button type="button" aria-label={t("terminalDisplayLarger")}
-            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, 1))}>+</button>
+            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, 1, webControlled))}>+</button>
         </div>
         <label>{t("terminalDisplayAreaWidth")} <output>{display.width}%</output><input data-display-width type="range" min="30" max="100" value={display.width} onChange={(event) => updateDisplay({ width: Number(event.target.value) })} /></label>
         <label>{t("terminalDisplayAreaHeight")} <output>{display.height}%</output><input data-display-height type="range" min="30" max="100" value={display.height} onChange={(event) => updateDisplay({ height: Number(event.target.value) })} /></label>

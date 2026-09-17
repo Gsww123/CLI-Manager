@@ -501,8 +501,7 @@ async function run() {
   check((result.resizeRequests ?? []).length === beforeOutput, 'Web output generated redundant resize requests');
   result.webResizeStable = true;
 
-  // Display preferences are browser-local: neither owner may resize the PTY
-  // merely because the viewer changes font, fitting mode or viewport bounds.
+  // Mirror preferences never resize the PTY. Web ownership reflows instead.
   const displayKey = 'cli-manager.web-terminal-display.v1';
   const control = selector => {
     const found = document.querySelector(selector);
@@ -518,7 +517,7 @@ async function run() {
   };
   const viewport = () => document.querySelector('.web-terminal-viewport') ?? document.querySelector('.web-terminal');
   result.displaySettings = [];
-  for (const owner of ['desktop', 'web']) {
+  for (const owner of ['desktop']) {
     const displayId = 'display-settings-' + owner;
     mount(displayId, [], owner);
     await pause(150);
@@ -584,9 +583,51 @@ async function run() {
     check(control('select[data-display-mode]').value === 'manual' && control('input[data-display-font]').value === '19' && control('input[data-display-width]').value === '60' && control('input[data-display-height]').value === '60', 'Remount failed to restore browser-local preferences');
     control('button[data-display-reset]').click();
     await pause(150);
-    check(control('select[data-display-mode]').value === 'contain' && control('input[data-display-font]').value === '14' && control('input[data-display-width]').value === '100' && control('input[data-display-height]').value === '100', 'Display reset did not restore defaults');
+    check(control('select[data-display-mode]').value === 'contain' && control('input[data-display-font]').value === '100' && control('input[data-display-width]').value === '100' && control('input[data-display-height]').value === '100', 'Display reset did not restore defaults');
     result.displaySettings.push({ owner, font: true, ctrlWheel: true, fitWidth: true, scrollable: true, contain: true, region: true, persistedRemount: true, reset: true, noPtyResize: true });
   }
+  const responsiveId = 'responsive-font';
+  mount(responsiveId, [], 'web');
+  await pause(150);
+  control('details.web-terminal-display').open = true;
+  check(!!document.querySelector('[data-display-responsive]') && !document.querySelector('[data-display-mode]'), 'Web ownership exposes mirror controls');
+  const shellBefore = document.querySelector('.web-terminal-shell').getBoundingClientRect();
+  const checkResponsive = () => {
+    const host = viewport();
+    const css = getComputedStyle(host);
+    const width = host.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+    const height = host.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom);
+    const screen = document.querySelector('.xterm-screen');
+    const cellWidth = screen.offsetWidth / terminal().cols;
+    check(screen.offsetWidth + 16 <= width + 1 && width - screen.offsetWidth - 16 < cellWidth + 2, 'Responsive terminal leaves unused columns or overflows');
+    check(screen.offsetHeight <= height + 1, 'Responsive input row is clipped');
+    const shell = document.querySelector('.web-terminal-shell').getBoundingClientRect();
+    check(shell.width === shellBefore.width && shell.height === shellBefore.height, 'Font size changed workspace bounds');
+  };
+  await change('input[data-display-font]', 24);
+  const largeGrid = { cols: terminal().cols, rows: terminal().rows };
+  checkResponsive();
+  await change('input[data-display-font]', 10);
+  check(terminal().cols > largeGrid.cols && terminal().rows > largeGrid.rows, 'Smaller font did not add rows and columns');
+  checkResponsive();
+  const responsiveResizes = result.resizeRequests.length;
+  publish(responsiveId, 1, 'RESPONSIVE-MARKER', { cols: terminal().cols, rows: terminal().rows });
+  await pause(150);
+  check(result.resizeRequests.length === responsiveResizes, 'Responsive output triggered duplicate resize');
+  mount(responsiveId, [], 'web', false);
+  await pause(100);
+  localStorage.setItem(displayKey, JSON.stringify({ mode: 'width', fontSize: 19, zoom: 60, width: 100, height: 100 }));
+  window.dispatchEvent(new Event(displayKey));
+  await pause(100);
+  check(result.resizeRequests.length === responsiveResizes, 'Hidden tab emitted a resize');
+  mount(responsiveId, [], 'web', true);
+  await pause(150);
+  check(terminal().options.fontSize === 19, 'Tab activation lost the selected font or applied mirror zoom');
+  checkResponsive();
+  check(result.resizeRequests.length > responsiveResizes, 'Active Web tab did not submit the new grid');
+  control('button[data-display-reset]').click();
+  await pause(150);
+  result.responsiveDisplay = true;
   mount('display-i18n', [], 'desktop', true, 'zh-CN');
   await pause(100);
   const chinese = control('details.web-terminal-display').textContent;

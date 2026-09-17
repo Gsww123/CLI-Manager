@@ -20,8 +20,8 @@ export function readDisplay(): TerminalDisplay {
   catch { return { ...DEFAULT_DISPLAY }; }
 }
 
-export function stepDisplaySize(display: TerminalDisplay, direction: number): Partial<TerminalDisplay> {
-  return display.mode === "manual"
+export function stepDisplaySize(display: TerminalDisplay, direction: number, webControlled = false): Partial<TerminalDisplay> {
+  return webControlled || display.mode === "manual"
     ? { fontSize: display.fontSize + direction }
     : { zoom: display.zoom + direction * 10 };
 }
