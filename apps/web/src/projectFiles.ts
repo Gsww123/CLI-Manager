@@ -27,11 +27,11 @@ export function parseFilePreview(value: JsonValue, image: boolean): string {
   throw new Error("invalid_file_result");
 }
 
-function delay(signal: AbortSignal): Promise<void> {
+function delay(signal: AbortSignal, milliseconds: number): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
     const abort = () => { clearTimeout(timer); reject(signal.reason); };
-    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 400);
+    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, milliseconds);
     signal.addEventListener("abort", abort, { once: true });
   });
 }
@@ -50,13 +50,17 @@ export async function readProjectFiles(
   if (kind === "file.search") payload.query = value;
   else payload.path = value;
   let { operation } = await client.createOperation({ deviceId, kind, payload, idempotencyKey: createRequestId() }, bounded);
+  const startedAt = performance.now();
   while (true) {
     bounded.throwIfAborted();
     if (operation.status === "succeeded") return operation.result;
     if (["failed", "rejected", "timed_out", "canceled"].includes(operation.status)) {
       throw new Error(operation.error?.code ?? "file_read_failed");
     }
-    await delay(bounded);
+    // Fast initial completion avoids a guaranteed 400 ms pause per folder.
+    // Back off for long-running host operations to bound polling traffic.
+    const elapsed = performance.now() - startedAt;
+    await delay(bounded, elapsed < 1_000 ? 100 : elapsed < 3_000 ? 250 : 500);
     ({ operation } = await client.operation(operation.id, bounded));
   }
 }

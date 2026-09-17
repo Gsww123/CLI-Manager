@@ -97,6 +97,8 @@ test("dock only in real spare desktop width; hysteresis avoids threshold flicker
   assert.equal(canDockFiles(390, 390, 30, false, false), false);
   assert.equal(canDockFiles(1400, 1200, 800, true, false), false);
   assert.equal(canDockFiles(1400, 1200, 800, false, false, true), false);
+  assert.equal(canDockFiles(800, 800, 400, false, false), true);
+  assert.equal(canDockFiles(767, 767, 300, false, false), false);
   assert.equal(canDockFiles(1400, 1200, 0, false, false), false);
   assert.equal(canDockFiles(1400, 1200, 870, false, false), false);
   assert.equal(canDockFiles(1400, 1200, 870, false, true), true);
@@ -106,6 +108,8 @@ test("Web entry replaces legacy modal and does not change terminal sizing", () =
   const views = read("../apps/web/src/views.tsx");
   assert.ok(!views.includes("ManagementPanel"));
   assert.match(views, /ProjectFilesPanel/);
+  assert.match(views, /setFilesOpen\(!fileLayout\.space/);
+  assert.match(views, /setFilesOpen\(false\); setFileContext\(undefined\); \}, \[selectedDevice\?\.id\]\)/);
   assert.match(views, /onSubmitManagement/); // context menus still use the transport
   const css = read("../apps/web/src/projectFiles.css");
   assert.match(css, /project-files-dock \{ position: absolute/);
@@ -113,4 +117,9 @@ test("Web entry replaces legacy modal and does not change terminal sizing", () =
   const panel = read("../apps/web/src/ProjectFilesPanel.tsx");
   assert.match(panel, /request.current\?\.abort/);
   assert.ok(!panel.includes("dangerouslySetInnerHTML"));
+  assert.match(panel, /entries\.slice\(0, visibleCount\[path\] \?\? 200\)/);
+  const layout = read("../apps/web/src/useFileSidebarLayout.ts");
+  assert.match(layout, /\.xterm-screen/);
+  assert.doesNotMatch(layout, /scrollHeight > viewport\.clientHeight/);
+  assert.match(layout, /viewport\.scrollWidth > viewport\.clientWidth/);
 });

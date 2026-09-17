@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, File, Folder, RefreshCw, Search, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, File, Folder, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import type { Device, ProjectContext } from "./domain";
 import type { TranslationKey } from "./i18n";
 import { parseFileEntries, parseFilePreview, readProjectFiles, type FileEntry, type FileReadKind } from "./projectFiles";
@@ -27,9 +27,10 @@ export function ProjectFilesPanel({ device, context, t, onClose }: Props) {
   </section>;
 }
 
-function fileError(error: unknown): TranslationKey {
+function fileError(error: unknown, kind: FileReadKind): TranslationKey {
   const code = error instanceof Error ? error.message : "";
   if (/ssh_project_unsupported/.test(code)) return "filesSshUnsupported";
+  if (/file_result_too_large/.test(code) && (kind === "file.list" || kind === "file.search")) return "filesListTooLarge";
   if (/too_large|binary|unsupported|invalid_file_result/.test(code)) return "filesPreviewUnavailable";
   if (/project_not_found|worktree_missing|worktree_not_found/.test(code)) return "filesContextMissing";
   return "filesReadFailed";
@@ -38,10 +39,12 @@ function fileError(error: unknown): TranslationKey {
 function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "context" | "t">>) {
   const [directories, setDirectories] = useState<Record<string, FileEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState<Record<string, number>>({});
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FileEntry[] | null>(null);
   const [preview, setPreview] = useState<{ path: string; image: boolean; content: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadingPath, setLoadingPath] = useState<string | null>(null);
   const [error, setError] = useState<TranslationKey | null>(null);
   const request = useRef<AbortController | null>(null);
 
@@ -50,6 +53,7 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
+    setLoadingPath(kind === "file.list" ? path : null);
     setError(null);
     try {
       const value = await readProjectFiles(device.id, context, kind, path, controller.signal);
@@ -61,9 +65,9 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
       } else if (kind === "file.search") setResults(parseFileEntries(value));
       else setPreview({ path, image: kind === "file.read_image", content: parseFilePreview(value, kind === "file.read_image") });
     } catch (reason) {
-      if (!controller.signal.aborted) setError(fileError(reason));
+      if (!controller.signal.aborted) setError(fileError(reason, kind));
     } finally {
-      if (!controller.signal.aborted) setBusy(false);
+      if (!controller.signal.aborted) { setBusy(false); setLoadingPath(null); }
     }
   };
 
@@ -84,19 +88,24 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
       void run(/\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(entry.path) ? "file.read_image" : "file.read_text", entry.path);
     }
   };
-  const renderEntries = (entries: FileEntry[], ancestors = new Set<string>()): React.ReactNode => <ul className="project-files-tree">
-    {entries.map((entry) => {
+  const renderEntries = (entries: FileEntry[], path = "", ancestors = new Set<string>()): React.ReactNode => <ul className="project-files-tree">
+    {entries.slice(0, visibleCount[path] ?? 200).map((entry) => {
       const folder = entry.kind === "directory";
       const open = expanded.has(entry.path) && !ancestors.has(entry.path);
       return <li key={entry.path}>
-        <button type="button" disabled={busy} title={entry.path} aria-expanded={folder ? open : undefined} onClick={() => select(entry)}>
-          {folder ? open ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : <span className="file-indent" />}
+        <button type="button" disabled={busy && !directories[entry.path]} title={entry.path} aria-expanded={folder ? open : undefined} onClick={() => select(entry)}>
+          {folder && busy && loadingPath === entry.path ? <LoaderCircle size={14} className="project-files-spinner" /> :
+            folder ? open ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : <span className="file-indent" />}
           {folder ? <Folder size={16} /> : <File size={16} />}<span>{entry.name}</span>
         </button>
         {folder && open && directories[entry.path] && (directories[entry.path].length
-          ? renderEntries(directories[entry.path], new Set([...ancestors, entry.path])) : <small className="file-empty">{t("filesEmpty")}</small>)}
+          ? renderEntries(directories[entry.path], entry.path, new Set([...ancestors, entry.path])) : <small className="file-empty">{t("filesEmpty")}</small>)}
       </li>;
     })}
+    {entries.length > (visibleCount[path] ?? 200) && <li><button className="project-files-more" type="button"
+      onClick={() => setVisibleCount((old) => ({ ...old, [path]: (old[path] ?? 200) + 200 }))}>
+      {t("filesShowMore")} ({entries.length - (visibleCount[path] ?? 200)})
+    </button></li>}
   </ul>;
 
   return <>
@@ -110,7 +119,7 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
         onChange={(event) => { setQuery(event.target.value); if (!event.target.value) setResults(null); }} />
       <button className="icon-button" type="submit" disabled={busy || !query.trim()} aria-label={t("filesSearch")}><Search size={17} /></button>
       <button className="icon-button" type="button" aria-label={t("refresh")} onClick={() => {
-        setQuery(""); setResults(null); setPreview(null); setDirectories({}); setExpanded(new Set()); void run("file.list", "");
+        setQuery(""); setResults(null); setPreview(null); setDirectories({}); setExpanded(new Set()); setVisibleCount({}); void run("file.list", "");
       }}><RefreshCw size={17} /></button>
     </form>
     {busy && <p role="status">{t("filesLoading")}</p>}
@@ -120,7 +129,7 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
         <button className="secondary-button" type="button" onClick={() => setPreview(null)}><ArrowLeft size={16} />{t("filesBack")}</button>
         <small className="file-preview-path">{preview.path}</small>
         {preview.image ? <img src={preview.content} alt={preview.path} /> : <pre tabIndex={0}>{preview.content}</pre>}
-      </div> : (results ?? directories[""])?.length ? renderEntries(results ?? directories[""] ?? []) :
+      </div> : (results ?? directories[""])?.length ? renderEntries(results ?? directories[""] ?? [], results ? "search" : "") :
         !busy && !error && <p>{t("filesEmpty")}</p>}
     </div>
   </>;

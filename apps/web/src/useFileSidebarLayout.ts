@@ -10,15 +10,20 @@ export function useFileSidebarLayout(sessionId: string | null | undefined, split
     frame.current = requestAnimationFrame(() => {
       frame.current = null;
       const stack = stackRef.current;
-      const terminal = stack?.querySelector<HTMLElement>(".web-terminal-frame.active .xterm");
-      if (!stack || !terminal || !terminal.offsetWidth) { setMeasured({ sessionId, split, space: false }); return; }
-      // offset width is independent of horizontal scrolling: never cover scrolled-off cells.
-      const viewport = terminal.closest<HTMLElement>(".web-terminal");
-      const right = (viewport?.getBoundingClientRect().left ?? terminal.getBoundingClientRect().left) + terminal.offsetWidth + 12;
+      const screen = stack?.querySelector<HTMLElement>(".web-terminal-frame.active .xterm-screen");
+      const viewport = screen?.closest<HTMLElement>(".web-terminal");
+      if (!stack || !screen || !viewport || !screen.offsetWidth) {
+        setMeasured({ sessionId, split, space: false });
+        return;
+      }
+      // The xterm wrapper fills the viewport; the screen reflects actual text width.
+      // Horizontally scrollable output must remain accessible rather than be covered.
+      const right = screen.getBoundingClientRect().right + 12;
       setMeasured((old) => ({ sessionId, split,
         space: canDockFiles(window.innerWidth, stack.getBoundingClientRect().right, right, split,
           old.sessionId === sessionId && old.space,
-          Boolean(viewport && viewport.scrollHeight > viewport.clientHeight + 1)) }));
+          viewport.scrollWidth > viewport.clientWidth + 1) &&
+          stack.clientWidth >= 640 && right - stack.getBoundingClientRect().left >= 240 }));
     });
   }, [sessionId, split]);
   useEffect(() => {

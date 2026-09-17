@@ -1,5 +1,5 @@
 export function canDockFiles(viewportWidth: number, stackRight: number, terminalRight: number,
-  split: boolean, alreadyDocked: boolean, verticalOverflow = false): boolean {
-  return viewportWidth >= 1000 && !split && !verticalOverflow && terminalRight > 0 &&
+  split: boolean, alreadyDocked: boolean, horizontalOverflow = false): boolean {
+  return viewportWidth >= 768 && !split && !horizontalOverflow && terminalRight > 0 &&
     stackRight - terminalRight >= (alreadyDocked ? 324 : 340);
 }

@@ -547,9 +547,12 @@ export function Workbench(props: WorkbenchProps) {
     setFileContext(context);
     setFilesHidden(false);
     try { localStorage.removeItem("web-files-hidden"); } catch { /* session-only preference */ }
-    setFilesOpen(true);
+    // An explicit context-menu target can differ from the visible terminal.
+    setFilesOpen(!fileLayout.space || Boolean(context && context.key !== activeTerminalContext?.key));
   };
-  useEffect(() => { setFilesOpen(false); setFileContext(undefined); }, [selectedDevice?.id, props.terminalSessionId]);
+  // Selecting a project can switch the active terminal in the same tick as opening
+  // its files. Keep the captured project drawer open; the active dock still follows tabs.
+  useEffect(() => { setFilesOpen(false); setFileContext(undefined); }, [selectedDevice?.id]);
   return (
     <div
       className={`app-shell${detailsOpen ? " details-open" : ""}${mobileControlsCollapsed ? " mobile-controls-collapsed" : ""}`}
