@@ -1,6 +1,6 @@
 import { DEFAULT_DISPLAY, DISPLAY_KEY, normalizeDisplay, readDisplay, stepDisplaySize, type TerminalDisplay } from "./terminalDisplay";
 import { applyTerminalDisplay } from "./terminalLayout";
-import { revealTerminalCell } from "./terminalCursorView";
+import { createTerminalInputFollow, revealTerminalCell } from "./terminalCursorView";
 import { translate, type TranslationKey } from "./i18n";
 import { installTerminalQueryPolicy } from "../../../src/shared/lib/terminalQueryPolicy";
 import { createTerminalColorQueryFilter } from "../../../src/shared/lib/terminalColorQueryFilter";
@@ -129,7 +129,8 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const inputRef = useRef(onInput);
-  const followInputRef = useRef<(() => void) | null>(null);
+  const followInputRef = useRef<((data: string) => void) | null>(null);
+  const cursorVisibleRef = useRef(true);
   const resizeRef = useRef(onResize);
   const controlModeRef = useRef(controlMode);
   const activeRef = useRef(active);
@@ -142,7 +143,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   sourceRef.current = source;
   inputRef.current = (data) => {
     const accepted = onInput(data);
-    if (accepted !== false && data) followInputRef.current?.();
+    followInputRef.current?.(accepted === false ? "" : data);
     return accepted;
   };
   resizeRef.current = onResize;
@@ -194,18 +195,21 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
     let releasePendingWrite: (() => void) | null = null;
     let cursorShowTimer: number | null = null;
     let permitCursorShow = false;
+    cursorVisibleRef.current = true;
     const cancelCursorShow = () => {
       if (cursorShowTimer !== null) clearTimeout(cursorShowTimer);
       cursorShowTimer = null;
     };
     // Parse complete CSI sequences, including those split across network chunks.
     const cursorHide = terminal.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
-      if (params.includes(25)) cancelCursorShow();
+      if (params.includes(25)) { cancelCursorShow(); cursorVisibleRef.current = false; }
       return false;
     });
     const cursorShow = terminal.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
-      if (sourceRef.current !== "codex" || params.length !== 1 || params[0] !== 25) return false;
-      if (permitCursorShow) { permitCursorShow = false; return false; }
+      if (!params.includes(25)) return false;
+      if (sourceRef.current !== "codex" || params.length !== 1) { cursorVisibleRef.current = true; return false; }
+      if (permitCursorShow) { permitCursorShow = false; cursorVisibleRef.current = true; return false; }
+      cursorVisibleRef.current = false;
       cancelCursorShow();
       cursorShowTimer = window.setTimeout(() => {
         cursorShowTimer = null;
@@ -214,6 +218,12 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
         terminal.write("\x1b[?25h");
       }, 80);
       return true;
+    });
+    const cursorReset = terminal.parser.registerEscHandler({ final: "c" }, () => {
+      cancelCursorShow();
+      cursorVisibleRef.current = true;
+      followInputRef.current?.("");
+      return false;
     });
 
     const write = (data: Uint8Array) => new Promise<void>((resolve) => {
@@ -454,6 +464,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       cancelCursorShow();
       cursorHide.dispose();
       cursorShow.dispose();
+      cursorReset.dispose();
       layoutRef.current = null;
       wakeRef.current = null;
       scroll.dispose();
@@ -468,13 +479,13 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
     const terminal = terminalRef.current;
     const container = containerRef.current;
     if (!terminal || !container) return;
-    let followUntil = 0;
+    const follow = createTerminalInputFollow();
     let frame: number | null = null;
     const reveal = () => {
-      if (!activeRef.current || Date.now() > followUntil || frame !== null) return;
+      if (!activeRef.current || !follow.canReveal(Date.now(), cursorVisibleRef.current) || frame !== null) return;
       frame = requestAnimationFrame(() => {
         frame = null;
-        if (!activeRef.current || Date.now() > followUntil) return;
+        if (!activeRef.current || !follow.canReveal(Date.now(), cursorVisibleRef.current)) return;
         const screen = container.querySelector<HTMLElement>(".xterm-screen");
         if (!screen) return;
         terminal.scrollToBottom();
@@ -491,17 +502,16 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
         container.scrollTop = revealTerminalCell(container.scrollTop, container.clientHeight, y, cellHeight);
       });
     };
-    followInputRef.current = () => { followUntil = Date.now() + 1500; reveal(); };
-    const cursor = terminal.onCursorMove(reveal);
+    followInputRef.current = (data) => follow.input(data, Date.now());
+    // Wait for parsed output: intermediate cursor moves belong to the TUI painter.
     const parsed = terminal.onWriteParsed(reveal);
-    const cancelFollow = () => { followUntil = 0; };
+    const cancelFollow = () => follow.cancel();
     container.addEventListener("touchstart", cancelFollow, { passive: true });
     container.addEventListener("pointerdown", cancelFollow);
     container.addEventListener("wheel", cancelFollow, { passive: true });
     return () => {
       followInputRef.current = null;
       if (frame !== null) cancelAnimationFrame(frame);
-      cursor.dispose();
       parsed.dispose();
       container.removeEventListener("touchstart", cancelFollow);
       container.removeEventListener("pointerdown", cancelFollow);

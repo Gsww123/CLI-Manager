@@ -1,5 +1,14 @@
 # Verification
 
+## Follow-up: model-menu scrolling and desktop sidebar collapse
+
+- Root cause: all accepted PTY input armed cursor following, including Enter and navigation sequences; following intermediate cursor moves could reveal a TUI repaint cursor rather than the input caret.
+- Changed WebTerminal input classification/parsed-output follow and cursor visibility tracking; added a small tested follow controller in terminalCursorView. Reset, manual scrolling and tab lifecycle cancel pending follow.
+- Workbench adds a persistent desktop sidebar toggle; CSS hides only the direct desktop sidebar and releases its grid column, including with the details panel open. ProjectTree remains mounted; mobile drawer unaffected. New control labels are bilingual.
+- Touchpoints confirmed unrelated: desktop source, Rust/server, shared PTY ownership/resize algorithm, project/file management APIs and mobile keyboard.
+- 26 targeted tests passed, including simulated model-picker navigation/confirmation and Unicode typing/paste; Web typecheck and strict architecture passed. Actual browser/Safari interaction and manual language switching remain unperformed per project rules.
+- GitNexus impact has no registered repositories; used memory references plus actual source/Git diff for scope verification. No application or dev service launched during this follow-up.
+
 ## Follow-up: dock and directory-response regression
 
 - Root cause: `.xterm` fills available width even when `.xterm-screen` does not; the prior layout gate also rejected any vertical overflow. An explicit project drawer was also closed when project selection switched the terminal. File reads always waited at least 400 ms for polling and disabled the entire tree while pending.

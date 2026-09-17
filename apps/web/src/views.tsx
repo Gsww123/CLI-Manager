@@ -20,6 +20,8 @@ import {
   Monitor,
   Moon,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Radio,
@@ -517,6 +519,14 @@ export function Workbench(props: WorkbenchProps) {
   const [historyContext, setHistoryContext] = useState<ProjectContext>();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [projectsCollapsed, setProjectsCollapsed] = useState(() => {
+    try { return localStorage.getItem("web-project-sidebar-collapsed") === "true"; } catch { return false; }
+  });
+  const toggleProjectsCollapsed = () => {
+    const next = !projectsCollapsed;
+    setProjectsCollapsed(next);
+    try { localStorage.setItem("web-project-sidebar-collapsed", String(next)); } catch { /* usable without storage */ }
+  };
   const [mobileControlsCollapsed, setMobileControlsCollapsed] = useState(false);
   const projectDrawerTabs = useRef<string[]>([]);
   const closeProjects = useCallback(() => setProjectsOpen(false), []);
@@ -555,7 +565,7 @@ export function Workbench(props: WorkbenchProps) {
   useEffect(() => { setFilesOpen(false); setFileContext(undefined); }, [selectedDevice?.id]);
   return (
     <div
-      className={`app-shell${detailsOpen ? " details-open" : ""}${mobileControlsCollapsed ? " mobile-controls-collapsed" : ""}`}
+      className={`app-shell${detailsOpen ? " details-open" : ""}${projectsCollapsed ? " projects-collapsed" : ""}${mobileControlsCollapsed ? " mobile-controls-collapsed" : ""}`}
     >
       <a className="skip-link" href="#conversation-main">
         {t("skipToContent")}
@@ -575,6 +585,12 @@ export function Workbench(props: WorkbenchProps) {
       />
       <main className="main-panel" id="conversation-main">
         <header className="desktop-header">
+          <button className="icon-button project-sidebar-toggle" type="button"
+            onClick={toggleProjectsCollapsed} aria-controls="desktop-project-sidebar" aria-expanded={!projectsCollapsed}
+            aria-label={t(projectsCollapsed ? "expandProjects" : "collapseProjects")}
+            title={t(projectsCollapsed ? "expandProjects" : "collapseProjects")}>
+            {projectsCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+          </button>
           <div className="context-block">
             <div className="device-context-row">
               <label className="sr-only" htmlFor="device-select">
@@ -1019,6 +1035,7 @@ function ProjectSidebar(props: WorkbenchProps & { mobile?: boolean; onPair: () =
   return (
     <aside
       className={`sidebar project-sidebar${props.mobile ? " mobile-project-sidebar" : ""}`}
+      id={props.mobile ? undefined : "desktop-project-sidebar"}
       aria-label={props.t("projects")}
     >
       {props.mobile ? (

@@ -3,6 +3,8 @@ export type ResolvedLanguage = Exclude<LanguageMode, "auto">;
 
 const dictionary = {
   "zh-CN": {
+    collapseProjects: "收起项目侧栏",
+    expandProjects: "展开项目侧栏",
     projectFiles: "项目文件",
     filesReadOnly: "只读浏览 · 按需加载",
     filesSearch: "搜索文件名",
@@ -365,6 +367,8 @@ const dictionary = {
     close: "关闭",
   },
   "en-US": {
+    collapseProjects: "Collapse project sidebar",
+    expandProjects: "Expand project sidebar",
     projectFiles: "Project files",
     filesReadOnly: "Read only · Loaded on demand",
     filesSearch: "Search filenames",

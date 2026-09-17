@@ -443,7 +443,13 @@ button.web-tree-chevron:hover { background: color-mix(in srgb, var(--border) 75%
   .app-shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); }
   .sidebar { display: flex; height: 100dvh; position: sticky; top: 0; flex-direction: column; }
   .mobile-header { display: none; }
-  .desktop-header { display: flex; }
+  .desktop-header { display: flex; flex-wrap: wrap; gap: 12px; }
+  .desktop-header > .context-block { flex: 1 1 200px; }
+  .desktop-header > .project-sidebar-toggle { flex: none; }
+  .desktop-header > .header-actions { margin-left: auto; }
+  .desktop-header .device-context-row { flex-wrap: wrap; }
+  .app-shell.projects-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .app-shell.projects-collapsed > .project-sidebar { display: none; }
   .workspace-content { padding: 24px 28px; }
   .terminal-workspace { padding: 12px; }
   .suggestion-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -476,6 +482,7 @@ button.web-tree-chevron:hover { background: color-mix(in srgb, var(--border) 75%
 @media (min-width: 1180px) {
   .details-toggle { display: inline-grid; }
   .app-shell.details-open { grid-template-columns: 250px minmax(0, 1fr) 320px; }
+  .app-shell.projects-collapsed.details-open { grid-template-columns: minmax(0, 1fr) 320px; }
   .app-shell.details-open .action-panel { display: block; height: 100dvh; position: sticky; top: 0; }
   .app-shell.details-open .composer { left: calc(250px + max(28px, (100vw - 250px - 320px - 860px) / 2)); right: calc(320px + max(28px, (100vw - 250px - 320px - 860px) / 2)); }
 }
