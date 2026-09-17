@@ -28,6 +28,7 @@ type WebTerminalProps = {
   onResize: (cols: number, rows: number) => void;
   onImageUpload: (file: File) => Promise<string>;
   onMobileToolbarCollapsed?: (collapsed: boolean) => void;
+  onLayout?: () => void;
 };
 
 type RenderBatch = {
@@ -82,7 +83,9 @@ function appendFrame(batches: RenderBatch[], frame: TerminalOutputFrame, reset =
   });
 }
 
-export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
+export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, onLayout, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
+  const onLayoutRef = useRef(onLayout);
+  onLayoutRef.current = onLayout;
   const [display, setDisplay] = useState(readDisplay);
   const [actualFontSize, setActualFontSize] = useState<number | null>(null);
   const displayRef = useRef(display);
@@ -388,6 +391,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       if (followBottom) container.scrollTop = container.scrollHeight;
       setOuterScrolledAway(container.scrollHeight - container.clientHeight - container.scrollTop > 1);
       lastDesktopLayout = layoutKey();
+      onLayoutRef.current?.();
     };
     let lastReportedSize = "";
     let lastDesktopLayout = "";
@@ -657,8 +661,8 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       onKey={(key) => { if (enabledRef.current) inputRef.current(key); }}
       onImageUpload={(file) => { void uploadImage(file); }}
       onCollapsedChange={onMobileToolbarCollapsed} />
-    {active && imageStatus && <div className="terminal-image-status" role={imageStatus === "failed" ? "alert" : "status"}>
-      {t(imageStatus === "sending" ? "terminalImageSending" : imageStatus === "submitted" ? "terminalImageSubmitted" : "terminalImageFailed")}
+    {active && imageStatus && imageStatus !== "submitted" && <div className="terminal-image-status" role={imageStatus === "failed" ? "alert" : "status"}>
+      {t(imageStatus === "sending" ? "terminalImageSending" : "terminalImageFailed")}
       {imageStatus !== "sending" && <button type="button" onClick={() => setImageStatus(null)}>{t("close")}</button>}
     </div>}
     {active && (scrolledAway || outerScrolledAway) && <button className="web-terminal-scroll-bottom" type="button" onClick={() => {

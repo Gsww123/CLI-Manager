@@ -26,7 +26,7 @@ import {
   RefreshCw,
   Search,
   Send,
-  Settings,
+  Files,
   Shield,
   SquareTerminal,
   Sun,
@@ -39,7 +39,8 @@ import type { Device, HistorySessionSummary, JsonObject, Operation, OperationSta
 import type { TranslationKey } from "./i18n";
 import { deviceWallpaperUrl } from "./webClient";
 import { WebTerminal } from "./WebTerminal";
-import { isManagementOperation, ManagementPanel } from "./ManagementPanel";
+import { ProjectFilesPanel } from "./ProjectFilesPanel";
+import { useFileSidebarLayout } from "./useFileSidebarLayout";
 import { ProjectTree } from "./ProjectTree";
 import { BrowserAccess, MobileQr } from "./BrowserAccess";
 import type { TerminalStream } from "./terminalStream";
@@ -508,8 +509,11 @@ export function Workbench(props: WorkbenchProps) {
   const { t, selectedDevice, selectedSession, selectedProjectContext } = props;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pairingOpen, setPairingOpen] = useState(false);
-  const [managementOpen, setManagementOpen] = useState(false);
-  const [managementArea, setManagementArea] = useState<"ssh" | "file">("ssh");
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [fileContext, setFileContext] = useState<ProjectContext>();
+  const [filesHidden, setFilesHidden] = useState(() => {
+    try { return localStorage.getItem("web-files-hidden") === "true"; } catch { return false; }
+  });
   const [historyContext, setHistoryContext] = useState<ProjectContext>();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -531,6 +535,21 @@ export function Workbench(props: WorkbenchProps) {
     context.key === props.terminalTabs.find((tab) => tab.sessionId === props.terminalSessionId)?.contextKey
   ) ?? selectedProjectContext;
   const syncText = props.latestSyncAt === null ? t("unknown") : formatServerTime(props.latestSyncAt);
+  const fileLayout = useFileSidebarLayout(props.terminalSessionId,
+    Boolean(props.workspace?.subagents?.some((agent) => agent.parentSessionId === props.terminalSessionId)));
+  const filesDocked = fileLayout.space && !filesHidden && !filesOpen && Boolean(activeTerminalContext?.projectId) &&
+    selectedDevice?.status === "online" && selectedDevice.capabilities.includes("file.management");
+  const hideFiles = () => {
+    setFilesHidden(true);
+    try { localStorage.setItem("web-files-hidden", "true"); } catch { /* session-only preference */ }
+  };
+  const openFiles = (context?: ProjectContext) => {
+    setFileContext(context);
+    setFilesHidden(false);
+    try { localStorage.removeItem("web-files-hidden"); } catch { /* session-only preference */ }
+    setFilesOpen(true);
+  };
+  useEffect(() => { setFilesOpen(false); setFileContext(undefined); }, [selectedDevice?.id, props.terminalSessionId]);
   return (
     <div
       className={`app-shell${detailsOpen ? " details-open" : ""}${mobileControlsCollapsed ? " mobile-controls-collapsed" : ""}`}
@@ -547,8 +566,7 @@ export function Workbench(props: WorkbenchProps) {
             setHistoryContext(props.projectContexts.find((context) => context.key === contextKey));
             setHistoryOpen(true);
           } else {
-            setManagementArea("file");
-            setManagementOpen(true);
+            openFiles(props.projectContexts.find((context) => context.key === contextKey));
           }
         }}
       />
@@ -612,10 +630,10 @@ export function Workbench(props: WorkbenchProps) {
             <button
               className="icon-button"
               type="button"
-              onClick={() => setManagementOpen(true)}
-              aria-label={t("management")}
+              onClick={() => openFiles()}
+              aria-label={t("projectFiles")}
             >
-              <Settings size={20} />
+              <Files size={20} />
             </button>
             <button
               className="icon-button"
@@ -681,10 +699,10 @@ export function Workbench(props: WorkbenchProps) {
           <button
             className="icon-button"
             type="button"
-            onClick={() => setManagementOpen(true)}
-            aria-label={t("management")}
+            onClick={() => openFiles()}
+            aria-label={t("projectFiles")}
           >
-            <Settings size={22} />
+            <Files size={22} />
           </button>
         </header>
 
@@ -776,7 +794,7 @@ export function Workbench(props: WorkbenchProps) {
             <TerminalEmpty t={t} canOpen={canOpenTerminal} onOpen={props.onOpenTerminal} />
           ) : null}
           {props.terminalTabs.length > 0 && (
-            <div className="web-terminal-stack">
+            <div ref={fileLayout.stackRef} className={`web-terminal-stack${filesDocked ? " has-files-dock" : ""}`}>
               {!props.terminalSessionId && (
                 <TerminalEmpty t={t} canOpen={canOpenTerminal} onOpen={props.onOpenTerminal} />
               )}
@@ -812,6 +830,7 @@ export function Workbench(props: WorkbenchProps) {
                       scrollLabel={t("scrollToBottom")}
                       onInput={(data) => props.onTerminalInput(data, tab.sessionId)}
                       onResize={(cols, rows) => props.onTerminalResize(cols, rows, tab.sessionId)}
+                      onLayout={fileLayout.measure}
                       onImageUpload={(file) => props.onSubmitTerminalImage(tab.sessionId, file)}
                       onMobileToolbarCollapsed={(collapsed) => {
                         if (active) setMobileControlsCollapsed(collapsed);
@@ -827,6 +846,9 @@ export function Workbench(props: WorkbenchProps) {
                   </div>
                 );
               })}
+              {filesDocked && <aside className="project-files-dock">
+                <ProjectFilesPanel device={selectedDevice} context={activeTerminalContext} t={t} onClose={hideFiles} />
+              </aside>}
             </div>
           )}
         </section>
@@ -860,9 +882,9 @@ export function Workbench(props: WorkbenchProps) {
             {t("pairDevice")}
           </button>
         )}
-        <button className="secondary-button" type="button" onClick={() => setManagementOpen(true)}>
-          <Settings size={18} />
-          {t("management")}
+        <button className="secondary-button" type="button" onClick={() => openFiles()}>
+          <Files size={18} />
+          {t("projectFiles")}
         </button>
         <h2>{t("capabilities")}</h2>
         <div className="capability-list">
@@ -930,8 +952,7 @@ export function Workbench(props: WorkbenchProps) {
                 );
                 setHistoryOpen(true);
               } else {
-                setManagementArea("file");
-                setManagementOpen(true);
+                openFiles(props.projectContexts.find((context) => context.key === contextKey));
               }
             }}
           />
@@ -978,25 +999,13 @@ export function Workbench(props: WorkbenchProps) {
           <PairingForm t={t} state={props.pairing} onClaim={props.onClaimPairing} />
         </OverlayPanel>
       )}
-      {managementOpen && (
+      {filesOpen && (
         <OverlayPanel
-          title={t("management")}
+          title={t("projectFiles")}
           closeLabel={t("close")}
-          onClose={() => setManagementOpen(false)}
+          onClose={() => setFilesOpen(false)}
         >
-          <ManagementPanel
-            initialArea={managementArea}
-            t={t}
-            capabilities={selectedDevice?.capabilities ?? []}
-            projectContext={selectedProjectContext}
-            operations={props.timeline
-              .filter(
-                (item): item is Extract<TimelineItem, { type: "operation" }> =>
-                  item.type === "operation" && isManagementOperation(item.operation),
-              )
-              .map((item) => item.operation)}
-            onSubmit={props.onSubmitManagement}
-          />
+          <ProjectFilesPanel device={selectedDevice} context={fileContext ?? activeTerminalContext} t={t} />
         </OverlayPanel>
       )}
     </div>

@@ -739,7 +739,7 @@ async function run() {
       picker.dispatchEvent(new Event('change', { bubbles: true }));
     };
     selectImage(); await pause(50);
-    check(result.mobileImages?.length === 1 && document.querySelector('.terminal-image-status')?.textContent.includes('submitted'), 'Image selection lacks success feedback');
+    check(result.mobileImages?.length === 1 && !document.querySelector('.terminal-image-status'), 'Successful image upload should not leave an extra notification');
     check(result.mobileSent.includes('"C:/test photo.png"'), 'Prepared image never reached xterm paste');
     await new Promise(resolve => terminal().write('\\x1b[?2004h', resolve));
     selectImage();
