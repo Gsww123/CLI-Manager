@@ -1,5 +1,6 @@
 import { DEFAULT_DISPLAY, DISPLAY_KEY, normalizeDisplay, readDisplay, stepDisplaySize, type TerminalDisplay } from "./terminalDisplay";
 import { applyTerminalDisplay } from "./terminalLayout";
+import { revealTerminalCell } from "./terminalCursorView";
 import { translate, type TranslationKey } from "./i18n";
 import { installTerminalQueryPolicy } from "../../../src/shared/lib/terminalQueryPolicy";
 import { createTerminalColorQueryFilter } from "../../../src/shared/lib/terminalColorQueryFilter";
@@ -84,8 +85,6 @@ function appendFrame(batches: RenderBatch[], frame: TerminalOutputFrame, reset =
 export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
   const [display, setDisplay] = useState(readDisplay);
   const [actualFontSize, setActualFontSize] = useState<number | null>(null);
-  const webControlled = controlMode === "web";
-  const usesFontSize = webControlled || display.mode === "manual";
   const displayRef = useRef(display);
   displayRef.current = display;
   const shellRef = useRef<HTMLDivElement>(null);
@@ -127,6 +126,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const inputRef = useRef(onInput);
+  const followInputRef = useRef<(() => void) | null>(null);
   const resizeRef = useRef(onResize);
   const controlModeRef = useRef(controlMode);
   const activeRef = useRef(active);
@@ -137,7 +137,11 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   const wakeRef = useRef<(() => void) | null>(null);
   const invalidateLayoutRef = useRef<(() => void) | null>(null);
   sourceRef.current = source;
-  inputRef.current = onInput;
+  inputRef.current = (data) => {
+    const accepted = onInput(data);
+    if (accepted !== false && data) followInputRef.current?.();
+    return accepted;
+  };
   resizeRef.current = onResize;
   controlModeRef.current = controlMode;
   activeRef.current = active;
@@ -425,7 +429,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       }
       event.preventDefault();
       event.stopPropagation();
-      if (event.deltaY) updateDisplay(stepDisplaySize(displayRef.current, event.deltaY < 0 ? 1 : -1, controlModeRef.current === "web"));
+      if (event.deltaY) updateDisplay(stepDisplaySize(displayRef.current, event.deltaY < 0 ? 1 : -1, terminal.options.fontSize));
     };
     container.addEventListener("wheel", zoom, { passive: false, capture: true });
     const resizeFrame = requestAnimationFrame(reportSize);
@@ -455,6 +459,51 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       terminal.dispose();
     };
   }, [sessionId, stream]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    const container = containerRef.current;
+    if (!terminal || !container) return;
+    let followUntil = 0;
+    let frame: number | null = null;
+    const reveal = () => {
+      if (!activeRef.current || Date.now() > followUntil || frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (!activeRef.current || Date.now() > followUntil) return;
+        const screen = container.querySelector<HTMLElement>(".xterm-screen");
+        if (!screen) return;
+        terminal.scrollToBottom();
+        const buffer = terminal.buffer.active;
+        const bounds = screen.getBoundingClientRect();
+        const host = container.getBoundingClientRect();
+        const cellWidth = bounds.width / terminal.cols;
+        const cellHeight = bounds.height / terminal.rows;
+        const x = bounds.left - host.left - container.clientLeft + container.scrollLeft
+          + Math.min(buffer.cursorX, terminal.cols - 1) * cellWidth;
+        const y = bounds.top - host.top - container.clientTop + container.scrollTop
+          + (buffer.baseY + buffer.cursorY - buffer.viewportY) * cellHeight;
+        container.scrollLeft = revealTerminalCell(container.scrollLeft, container.clientWidth - 16, x, cellWidth);
+        container.scrollTop = revealTerminalCell(container.scrollTop, container.clientHeight, y, cellHeight);
+      });
+    };
+    followInputRef.current = () => { followUntil = Date.now() + 1500; reveal(); };
+    const cursor = terminal.onCursorMove(reveal);
+    const parsed = terminal.onWriteParsed(reveal);
+    const cancelFollow = () => { followUntil = 0; };
+    container.addEventListener("touchstart", cancelFollow, { passive: true });
+    container.addEventListener("pointerdown", cancelFollow);
+    container.addEventListener("wheel", cancelFollow, { passive: true });
+    return () => {
+      followInputRef.current = null;
+      if (frame !== null) cancelAnimationFrame(frame);
+      cursor.dispose();
+      parsed.dispose();
+      container.removeEventListener("touchstart", cancelFollow);
+      container.removeEventListener("pointerdown", cancelFollow);
+      container.removeEventListener("wheel", cancelFollow);
+    };
+  }, [sessionId, stream, active]);
 
   useEffect(() => {
     invalidateLayoutRef.current?.();
@@ -577,25 +626,21 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
     <details className="web-terminal-display" onKeyDown={(event) => { if (event.key === "Escape") event.currentTarget.open = false; }}>
       <summary>{t("terminalDisplay")}</summary>
       <div className="web-terminal-display-panel">
-        <p>{t(webControlled ? "terminalDisplayResponsiveHint" : "terminalDisplayHint")}</p>
-        {webControlled ? <p data-display-responsive>{t("terminalDisplayResponsive")}</p> :
-        <label>{t("terminalDisplayMode")}<select data-display-mode value={display.mode} onChange={(event) => updateDisplay({ mode: event.target.value as TerminalDisplay["mode"] })}>
-          <option value="manual">{t("terminalDisplayManual")}</option><option value="width">{t("terminalDisplayWidth")}</option><option value="contain">{t("terminalDisplayContain")}</option>
-        </select></label>}
-        <label>{t(usesFontSize ? "terminalDisplayFont" : "terminalDisplayZoom")}
-          <output>{usesFontSize ? `${display.fontSize}px` : `${display.zoom}%`}</output>
-          <input data-display-font type="range" min={usesFontSize ? 8 : 25}
-            max={usesFontSize ? 36 : 300} step={usesFontSize ? 1 : 5}
-            value={usesFontSize ? display.fontSize : display.zoom}
-            onChange={(event) => updateDisplay(usesFontSize
-              ? { fontSize: Number(event.target.value) } : { zoom: Number(event.target.value) })} />
+        <p>{t("terminalDisplaySharedHint")}</p>
+        <label>{t("terminalDisplayFont")}
+          <output>{Number((actualFontSize ?? display.fontSize).toFixed(1))}px</output>
+          <input data-display-font type="range" min="1" max="36" step="1"
+            value={actualFontSize ?? display.fontSize}
+            onChange={(event) => updateDisplay({ mode: "manual", fontSize: Number(event.target.value) })} />
         </label>
         <p>{t("terminalDisplayActualFont")}: {actualFontSize === null ? "—" : `${Number(actualFontSize.toFixed(1))}px`}</p>
         <div className="web-terminal-display-buttons">
           <button type="button" aria-label={t("terminalDisplaySmaller")}
-            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, -1, webControlled))}>−</button>
+            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, -1, actualFontSize ?? display.fontSize))}>−</button>
           <button type="button" aria-label={t("terminalDisplayLarger")}
-            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, 1, webControlled))}>+</button>
+            onClick={() => updateDisplay(stepDisplaySize(displayRef.current, 1, actualFontSize ?? display.fontSize))}>+</button>
+          <button type="button" data-display-fit aria-pressed={display.mode !== "manual"}
+            onClick={() => updateDisplay({ mode: "width", fontSize: 14, zoom: 100 })}>{t("terminalDisplayWidth")}</button>
         </div>
         <label>{t("terminalDisplayAreaWidth")} <output>{display.width}%</output><input data-display-width type="range" min="30" max="100" value={display.width} onChange={(event) => updateDisplay({ width: Number(event.target.value) })} /></label>
         <label>{t("terminalDisplayAreaHeight")} <output>{display.height}%</output><input data-display-height type="range" min="30" max="100" value={display.height} onChange={(event) => updateDisplay({ height: Number(event.target.value) })} /></label>

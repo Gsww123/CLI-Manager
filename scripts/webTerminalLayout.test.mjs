@@ -28,7 +28,7 @@ function renderer() {
 
 test("Web font controls reflow instead of changing mirror mode or zoom", () => {
   for (const mode of ["manual", "width", "contain"]) {
-    assert.deepEqual(stepDisplaySize({ ...DEFAULT_DISPLAY, mode, zoom: 60 }, 1, true), { fontSize: 15 });
+    assert.deepEqual(stepDisplaySize({ ...DEFAULT_DISPLAY, mode, zoom: 60 }, 1, 14), { mode: "manual", fontSize: 15 });
   }
 });
 
@@ -90,13 +90,30 @@ test("desktop mirror preserves grid in all modes and across ownership transition
   }
 });
 
-test("mirror contain fits both axes while manual/width may need scrolling", () => {
+test("shared mirror fits width by default and larger manual fonts allow scrolling", () => {
   const { terminal, screen } = renderer();
   const contained = applyTerminalDisplay(terminal, screen, 390, 260, DEFAULT_DISPLAY, false);
-  assert.ok(contained.width <= 390 && contained.height <= 260);
+  assert.ok(contained.width <= 390);
   const manual = applyTerminalDisplay(terminal, screen, 390, 260,
     { ...DEFAULT_DISPLAY, mode: "manual", fontSize: 24 }, false);
   assert.ok(manual.width > 390 && manual.height > 260);
+});
+
+test("short desktop grids never enlarge at fit width and old zoom cannot change the result", () => {
+  const { terminal, screen, calls } = renderer();
+  const fitted = applyTerminalDisplay(terminal, screen, 2000, 600, { ...DEFAULT_DISPLAY, zoom: 300 }, false);
+  assert.equal(fitted.fontSize, 14);
+  assert.equal(calls.length, 0);
+  assert.deepEqual(applyTerminalDisplay(terminal, screen, 2000, 600, { ...DEFAULT_DISPLAY, zoom: 60 }, false), fitted);
+});
+
+test("cursor reveal leaves visible cells stable and reveals cells beyond either edge", async () => {
+  const { revealTerminalCell } = await import(moduleUrl(read("../apps/web/src/terminalCursorView.ts")));
+  assert.equal(revealTerminalCell(100, 300, 180, 10), 100);
+  assert.equal(revealTerminalCell(100, 300, 70, 10), 70);
+  assert.equal(revealTerminalCell(100, 300, 600, 10), 310);
+  assert.equal(revealTerminalCell(0, 200, 430, 20), 250);
+  assert.equal(revealTerminalCell(0, 200, -1, 20), 0);
 });
 
 test("grid limits and unmeasurable screen do not generate invalid resize", () => {
@@ -118,6 +135,6 @@ test("real component gates resize on visibility/output drain and deduplicates re
   assert.match(report, /container.clientHeight/);
   assert.doesNotMatch(report, /shell.clientHeight|shell.clientWidth/);
   assert.match(report, /if \(ownsSize\) \{[\s\S]*requested !== lastReportedSize[\s\S]*resizeRef.current/);
-  assert.match(component, /stepDisplaySize\(displayRef.current, -1, webControlled\)/);
-  assert.match(component, /controlModeRef.current === "web"\)\)/);
+  assert.match(component, /data-display-fit/);
+  assert.doesNotMatch(component, /<select data-display-mode/);
 });

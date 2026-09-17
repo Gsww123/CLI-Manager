@@ -7,25 +7,25 @@ const source = readFileSync(new URL("../apps/web/src/terminalDisplay.ts", import
 const javascript = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { DEFAULT_DISPLAY, normalizeDisplay, readDisplay, stepDisplaySize, zoomDisplayFont } =
+const { DEFAULT_DISPLAY, normalizeDisplay, readDisplay, stepDisplaySize } =
   await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
 
 test("legacy settings retain mode and manual font with 100% automatic zoom", () => {
   for (const mode of ["manual", "width", "contain"]) {
     const result = normalizeDisplay({ mode, fontSize: 22, width: 75, height: 90 });
-    assert.deepEqual(result, { mode, fontSize: 22, zoom: 100, width: 75, height: 90 });
+    assert.deepEqual(result, { mode: mode === "manual" ? "manual" : "width", fontSize: 22, zoom: 100, width: 75, height: 90 });
   }
   assert.deepEqual(normalizeDisplay(null), DEFAULT_DISPLAY);
 });
 
-test("size steps keep the selected mode and preserve the other mode's size", () => {
+test("size steps adjust actual font consistently regardless of saved mirror mode", () => {
   for (const mode of ["manual", "width", "contain"]) {
     const initial = { ...DEFAULT_DISPLAY, mode, fontSize: 22, zoom: 150 };
-    const increased = normalizeDisplay({ ...initial, ...stepDisplaySize(initial, 1) });
-    assert.equal(increased.mode, mode);
-    assert.equal(increased.fontSize, mode === "manual" ? 23 : 22);
-    assert.equal(increased.zoom, mode === "manual" ? 150 : 160);
-    assert.deepEqual(normalizeDisplay({ ...increased, ...stepDisplaySize(increased, -1) }), initial);
+    const increased = normalizeDisplay({ ...initial, ...stepDisplaySize(initial, 1, 10) });
+    assert.equal(increased.mode, "manual");
+    assert.equal(increased.fontSize, 11);
+    assert.equal(increased.zoom, 150);
+    assert.equal(stepDisplaySize(increased, -1, 11).fontSize, 10);
   }
 });
 
@@ -35,16 +35,13 @@ test("size limits and invalid saved values are normalized", () => {
   assert.equal(normalizeDisplay({ zoom: NaN }).zoom, 100);
   assert.equal(normalizeDisplay({ zoom: "150" }).zoom, 100);
   assert.equal(normalizeDisplay({ fontSize: 999 }).fontSize, 36);
-  assert.equal(normalizeDisplay({ fontSize: -1 }).fontSize, 8);
+  assert.equal(normalizeDisplay({ fontSize: -1 }).fontSize, 1);
 });
 
-test("zoom applies after fit, permits overflow, and clamps renderer limits", () => {
-  assert.equal(zoomDisplayFont(12, 100), 12);
-  assert.equal(zoomDisplayFont(12, 150), 18);
-  assert.equal(zoomDisplayFont(12, 50), 6);
-  assert.equal(zoomDisplayFont(20, 150), 30); // resized viewport gets a new baseline
-  assert.equal(zoomDisplayFont(1, 25), 1);
-  assert.equal(zoomDisplayFont(96, 300), 96);
+test("font controls start from rendered size and respect limits", () => {
+  assert.equal(stepDisplaySize(DEFAULT_DISPLAY, 1, 4).fontSize, 5);
+  assert.equal(stepDisplaySize(DEFAULT_DISPLAY, -1, 1).fontSize, 1);
+  assert.equal(stepDisplaySize(DEFAULT_DISPLAY, 1, 36).fontSize, 36);
 });
 
 test("browser settings round-trip and recover from invalid storage", () => {
