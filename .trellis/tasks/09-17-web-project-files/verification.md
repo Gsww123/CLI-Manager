@@ -1,5 +1,13 @@
 # Verification
 
+## Follow-up: adaptive 200–300px file dock
+
+- Cause: the fixed 300px dock required 340px spare width to open, leaving narrower usable gaps empty. Geometry now permits opening at 240px and remaining open down to 224px; width is clamped to 200–300px after reserving 24px for inset/gap.
+- Touchpoints: fileSidebarLayout geometry, useFileSidebarLayout measurement, Workbench CSS-variable binding, projectFiles dock and control offsets, targeted tests. Desktop/server/PTY sizing and file APIs are unchanged.
+- Scenarios: opening/closing thresholds, fractional widths, 200/300px bounds, wide/narrow viewport, horizontal overflow, split pane, tab identity; existing hidden preference and mobile drawer preserved.
+- GitNexus impact unavailable (no indexed repository); memory search plus actual source/reference search used instead. Memory index refreshed after changes.
+- Validation: 19 targeted tests passed; Web typecheck/production build passed (existing large-chunk warning); strict architecture passed with zero violations; git diff --check passed. No app/dev server launched; browser visual acceptance remains manual. No installer packaging or remote push performed.
+
 ## Follow-up: model-menu scrolling and desktop sidebar collapse
 
 - Root cause: all accepted PTY input armed cursor following, including Enter and navigation sequences; following intermediate cursor moves could reveal a TUI repaint cursor rather than the input caret.

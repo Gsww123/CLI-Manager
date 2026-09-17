@@ -13,7 +13,7 @@ const { readProjectFiles, parseFileEntries, parseFilePreview } = await import(mo
   read("../apps/web/src/projectFiles.ts").replace('"./requestId"', JSON.stringify(requestIdUrl))
     .replace('"./webClient"', JSON.stringify(clientUrl)),
 ));
-const { canDockFiles } = await import(moduleUrl(read("../apps/web/src/fileSidebarLayout.ts")));
+const { canDockFiles, fileDockWidth } = await import(moduleUrl(read("../apps/web/src/fileSidebarLayout.ts")));
 const context = { key: "p:w", projectId: "p", worktreeId: "w", cwd: "C:/work" };
 
 test("submit once, poll same operation, freeze project and Worktree identity", async () => {
@@ -100,8 +100,28 @@ test("dock only in real spare desktop width; hysteresis avoids threshold flicker
   assert.equal(canDockFiles(800, 800, 400, false, false), true);
   assert.equal(canDockFiles(767, 767, 300, false, false), false);
   assert.equal(canDockFiles(1400, 1200, 0, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 870, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 870, false, true), true);
+  assert.equal(canDockFiles(1400, 1200, 960, false, false), true);
+  assert.equal(canDockFiles(1400, 1200, 961, false, false), false);
+  assert.equal(canDockFiles(1400, 1200, 970, false, true), true);
+  assert.equal(canDockFiles(1400, 1200, 976, false, true), true);
+  assert.equal(canDockFiles(1400, 1200, 977, false, true), false);
+});
+
+test("dock width follows spare space between 200 and 300 without covering the canvas", () => {
+  assert.equal(fileDockWidth(224), 200);
+  assert.equal(fileDockWidth(240), 216);
+  assert.equal(fileDockWidth(290), 266);
+  assert.equal(fileDockWidth(324), 300);
+  assert.equal(fileDockWidth(600), 300);
+  for (let spare = 224; spare <= 600; spare += 0.5) {
+    const width = fileDockWidth(spare);
+    assert.ok(width >= 200 && width <= 300);
+    assert.ok(width + 24 <= spare);
+  }
+  assert.ok(read("../apps/web/src/views.tsx").includes('"--files-dock-width": `${fileLayout.width}px`'));
+  const css = read("../apps/web/src/projectFiles.css");
+  assert.ok(css.includes("width: var(--files-dock-width, 200px)"));
+  assert.equal(css.split("right: calc(var(--files-dock-width, 200px) + 32px)").length - 1, 2);
 });
 
 test("Web entry replaces legacy modal and does not change terminal sizing", () => {
