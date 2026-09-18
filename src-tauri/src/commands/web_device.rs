@@ -247,10 +247,14 @@ impl WebDeviceManager {
 
     fn status(&self) -> Result<WebDeviceStatus, String> {
         let profile = load_profile()?;
-        let runtime = self
+        let mut runtime = self
             .runtime
             .lock()
             .map_err(|_| "web device state lock poisoned")?;
+        if crate::web_daemon::pairing_is_expired(runtime.pairing_expires_at, now_millis()) {
+            runtime.pairing_code = None;
+            runtime.pairing_expires_at = None;
+        }
         let pending_operations = self
             .operations
             .lock()

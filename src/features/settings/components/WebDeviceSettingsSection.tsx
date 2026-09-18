@@ -9,6 +9,7 @@ import { webServerApi } from "../../../shared/lib/webServer";
 import { WebMobileAccess } from "./WebMobileAccess";
 import { useSettingsStore } from "../../../shared/preferences/settingsStore";
 import { normalizeWebTerminalBatchKiB } from "../../../shared/lib/webTerminalFrames";
+import { pairingRefreshDelay } from "../lib/webPairingLifecycle";
 
 const STATUS_EVENT = "web-device-status-changed";
 
@@ -56,6 +57,13 @@ export function WebDeviceSettingsSection({ onStatusChange }: Props) {
     const unlisten = listen<WebDeviceStatus>(STATUS_EVENT, (event) => applyStatus(event.payload));
     return () => { void unlisten.then((dispose) => dispose()); };
   }, [applyStatus, refresh]);
+
+  useEffect(() => {
+    const delay = pairingRefreshDelay(status?.pairingCode, status?.pairingExpiresAt, Date.now());
+    if (delay === null) return;
+    const timer = window.setTimeout(() => void refresh(), Math.min(delay, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [refresh, status?.pairingCode, status?.pairingExpiresAt]);
 
   const run = async (key: string, action: () => Promise<WebDeviceStatus>, successKey: TranslationKey) => {
     setWorking(key);

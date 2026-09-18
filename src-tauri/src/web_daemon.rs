@@ -34,6 +34,10 @@ const DEV_PROFILE_FILE_NAME: &str = "web-device.dev.json";
 const TOKEN_ACCOUNT_PREFIX: &str = "web-device-token:";
 const INFO_FILE_NAME: &str = "web-daemon.json";
 const DEV_INFO_FILE_NAME: &str = "web-daemon.dev.json";
+
+pub(crate) fn pairing_is_expired(pairing_expires_at: Option<i64>, now: i64) -> bool {
+    pairing_expires_at.is_some_and(|expires_at| expires_at <= now)
+}
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
@@ -564,10 +568,14 @@ impl DaemonState {
 
     fn status(&self) -> Result<Status, String> {
         let profile = load_profile()?;
-        let runtime = self
+        let mut runtime = self
             .runtime
             .lock()
             .map_err(|_| "web daemon state lock poisoned")?;
+        if pairing_is_expired(runtime.pairing_expires_at, now_millis()) {
+            runtime.pairing_code = None;
+            runtime.pairing_expires_at = None;
+        }
         let pending = self
             .operations
             .lock()
@@ -1488,6 +1496,14 @@ pub fn remove_discovery() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairing_expiry_boundary_is_inclusive() {
+        assert!(!pairing_is_expired(None, 100));
+        assert!(!pairing_is_expired(Some(101), 100));
+        assert!(pairing_is_expired(Some(100), 100));
+        assert!(pairing_is_expired(Some(99), 100));
+    }
 
     #[test]
     fn web_output_wakes_silent_socket_without_receive_timeout() {

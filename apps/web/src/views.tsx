@@ -1396,6 +1396,7 @@ function pairingError(t: T, code: string, fallback: string) {
   if (code === "pairing_code_expired") return t("pairingCodeExpired");
   if (code === "pairing_code_used") return t("pairingCodeUsed");
   if (code === "device_disconnected") return t("deviceDisconnectedError");
+  if (code === "origin_forbidden" || code === "origin_required") return t("pairingOriginMismatch");
   return localizedError(t, fallback || code);
 }
 
