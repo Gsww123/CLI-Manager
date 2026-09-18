@@ -44,6 +44,7 @@ import { deviceWallpaperUrl } from "./webClient";
 import { WebTerminal } from "./WebTerminal";
 import { ProjectFilesPanel } from "./ProjectFilesPanel";
 import { useFileSidebarLayout } from "./useFileSidebarLayout";
+import { SidebarResizeHandle } from "./SidebarResizeHandle";
 import { ProjectTree } from "./ProjectTree";
 import { BrowserAccess, MobileQr } from "./BrowserAccess";
 import type { TerminalStream } from "./terminalStream";
@@ -546,27 +547,32 @@ export function Workbench(props: WorkbenchProps) {
     context.key === props.terminalTabs.find((tab) => tab.sessionId === props.terminalSessionId)?.contextKey
   ) ?? selectedProjectContext;
   const syncText = props.latestSyncAt === null ? t("unknown") : formatServerTime(props.latestSyncAt);
-  const fileLayout = useFileSidebarLayout(props.terminalSessionId,
-    Boolean(props.workspace?.subagents?.some((agent) => agent.parentSessionId === props.terminalSessionId)));
-  const filesDocked = fileLayout.space && !filesHidden && !filesOpen && Boolean(activeTerminalContext?.projectId) &&
-    selectedDevice?.status === "online" && selectedDevice.capabilities.includes("file.management");
-  const hideFiles = () => {
+  const filesDocked = !filesHidden && Boolean((fileContext ?? activeTerminalContext)?.projectId);
+  const fileLayout = useFileSidebarLayout(!projectsCollapsed, filesDocked, detailsOpen);
+  const columns = [!projectsCollapsed && `${fileLayout.projects}px 6px`, "minmax(0, 1fr)",
+    filesDocked && `6px ${fileLayout.files}px`, fileLayout.details > 0 && `${fileLayout.details}px`].filter(Boolean).join(" ");
+  useEffect(() => { if (fileLayout.desktop) setFilesOpen(false); }, [fileLayout.desktop]);
+  const hideFiles = useCallback(() => {
     setFilesHidden(true);
+    setFilesOpen(false);
     try { localStorage.setItem("web-files-hidden", "true"); } catch { /* session-only preference */ }
-  };
+  }, []);
   const openFiles = (context?: ProjectContext) => {
     setFileContext(context);
     setFilesHidden(false);
     try { localStorage.removeItem("web-files-hidden"); } catch { /* session-only preference */ }
-    // An explicit context-menu target can differ from the visible terminal.
-    setFilesOpen(!fileLayout.space || Boolean(context && context.key !== activeTerminalContext?.key));
+    setFilesOpen(!fileLayout.desktop);
   };
   // Selecting a project can switch the active terminal in the same tick as opening
   // its files. Keep the captured project drawer open; the active dock still follows tabs.
   useEffect(() => { setFilesOpen(false); setFileContext(undefined); }, [selectedDevice?.id]);
+  useEffect(() => {
+    setFileContext((context) => context?.key === activeTerminalContext?.key ? context : undefined);
+  }, [props.terminalSessionId]);
   return (
     <div
-      className={`app-shell${detailsOpen ? " details-open" : ""}${projectsCollapsed ? " projects-collapsed" : ""}${mobileControlsCollapsed ? " mobile-controls-collapsed" : ""}`}
+      className={`app-shell resizable-workbench${detailsOpen ? " details-open" : ""}${projectsCollapsed ? " projects-collapsed" : ""}${mobileControlsCollapsed ? " mobile-controls-collapsed" : ""}`}
+      style={fileLayout.desktop ? { gridTemplateColumns: columns } as CSSProperties : undefined}
     >
       <a className="skip-link" href="#conversation-main">
         {t("skipToContent")}
@@ -584,6 +590,8 @@ export function Workbench(props: WorkbenchProps) {
           }
         }}
       />
+      {fileLayout.desktop && !projectsCollapsed && <SidebarResizeHandle side="projects" width={fileLayout.projects}
+        max={fileLayout.projectMax} label={t("resizeProjects")} onResize={fileLayout.resize} />}
       <main className="main-panel" id="conversation-main">
         <header className="desktop-header">
           <button className="icon-button project-sidebar-toggle" type="button"
@@ -779,7 +787,7 @@ export function Workbench(props: WorkbenchProps) {
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => props.onSelectTerminalTab(tab.sessionId)}
+                      onClick={() => { setFileContext(undefined); props.onSelectTerminalTab(tab.sessionId); }}
                       title={context?.projectName ?? tab.sessionId}
                     >
                       <span className={`terminal-tab-status ${tab.status}`} aria-hidden="true" />
@@ -814,8 +822,7 @@ export function Workbench(props: WorkbenchProps) {
             <TerminalEmpty t={t} canOpen={canOpenTerminal} onOpen={props.onOpenTerminal} />
           ) : null}
           {props.terminalTabs.length > 0 && (
-            <div ref={fileLayout.stackRef} className={`web-terminal-stack${filesDocked ? " has-files-dock" : ""}`}
-              style={{ "--files-dock-width": `${fileLayout.width}px` } as CSSProperties}>
+            <div className="web-terminal-stack">
               {!props.terminalSessionId && (
                 <TerminalEmpty t={t} canOpen={canOpenTerminal} onOpen={props.onOpenTerminal} />
               )}
@@ -851,7 +858,6 @@ export function Workbench(props: WorkbenchProps) {
                       scrollLabel={t("scrollToBottom")}
                       onInput={(data) => props.onTerminalInput(data, tab.sessionId)}
                       onResize={(cols, rows) => props.onTerminalResize(cols, rows, tab.sessionId)}
-                      onLayout={fileLayout.measure}
                       onImageUpload={(file) => props.onSubmitTerminalImage(tab.sessionId, file)}
                       onMobileToolbarCollapsed={(collapsed) => {
                         if (active) setMobileControlsCollapsed(collapsed);
@@ -867,13 +873,18 @@ export function Workbench(props: WorkbenchProps) {
                   </div>
                 );
               })}
-              {filesDocked && <aside className="project-files-dock">
-                <ProjectFilesPanel device={selectedDevice} context={activeTerminalContext} t={t} onClose={hideFiles} />
-              </aside>}
             </div>
           )}
         </section>
       </main>
+
+      {fileLayout.desktop && filesDocked && <>
+        <SidebarResizeHandle side="files" width={fileLayout.files} max={fileLayout.fileMax}
+          label={t("resizeFiles")} onResize={fileLayout.resize} />
+        <aside className="project-files-dock">
+          <ProjectFilesPanel device={selectedDevice} context={fileContext ?? activeTerminalContext} t={t} onClose={hideFiles} />
+        </aside>
+      </>}
 
       <aside
         id="device-details-drawer"
@@ -1020,13 +1031,14 @@ export function Workbench(props: WorkbenchProps) {
           <PairingForm t={t} state={props.pairing} onClaim={props.onClaimPairing} />
         </OverlayPanel>
       )}
-      {filesOpen && (
+      {!fileLayout.desktop && filesOpen && (
         <OverlayPanel
           title={t("projectFiles")}
           closeLabel={t("close")}
-          onClose={() => setFilesOpen(false)}
+          hideHeader
+          onClose={hideFiles}
         >
-          <ProjectFilesPanel device={selectedDevice} context={fileContext ?? activeTerminalContext} t={t} />
+          <ProjectFilesPanel device={selectedDevice} context={fileContext ?? activeTerminalContext} t={t} onClose={hideFiles} />
         </OverlayPanel>
       )}
     </div>
@@ -1158,7 +1170,9 @@ function HistoryList({ t, items, selectedId, onSelect }: { t: T; items: HistoryS
   );
 }
 
-function OverlayPanel({ title, closeLabel, onClose, children }: { title: string; closeLabel: string; onClose: () => void; children: ReactNode }) {
+function OverlayPanel({ title, closeLabel, onClose, children, hideHeader = false }: {
+  title: string; closeLabel: string; onClose: () => void; children: ReactNode; hideHeader?: boolean;
+}) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -1182,7 +1196,12 @@ function OverlayPanel({ title, closeLabel, onClose, children }: { title: string;
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); document.body.style.overflow = previousOverflow; previousFocus.current?.focus(); };
   }, [onClose]);
-  return <div className="overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={panelRef}><header><h2>{title}</h2><button className="icon-button" type="button" onClick={onClose} aria-label={closeLabel}><X size={22} /></button></header>{children}</div></div>;
+  return <div className="overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={panelRef}>
+      {!hideHeader && <header><h2>{title}</h2><button className="icon-button" type="button" onClick={onClose} aria-label={closeLabel}><X size={22} /></button></header>}
+      {children}
+    </div>
+  </div>;
 }
 
 function PairingForm({ t, state, onClaim }: { t: T; state: PairingState; onClaim: (code: string) => Promise<void> }) {

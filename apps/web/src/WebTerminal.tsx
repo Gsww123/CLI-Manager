@@ -28,7 +28,6 @@ type WebTerminalProps = {
   onResize: (cols: number, rows: number) => void;
   onImageUpload: (file: File) => Promise<string>;
   onMobileToolbarCollapsed?: (collapsed: boolean) => void;
-  onLayout?: () => void;
 };
 
 type RenderBatch = {
@@ -83,9 +82,7 @@ function appendFrame(batches: RenderBatch[], frame: TerminalOutputFrame, reset =
   });
 }
 
-export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, onLayout, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
-  const onLayoutRef = useRef(onLayout);
-  onLayoutRef.current = onLayout;
+export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
   const [display, setDisplay] = useState(readDisplay);
   const [actualFontSize, setActualFontSize] = useState<number | null>(null);
   const displayRef = useRef(display);
@@ -401,7 +398,6 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       if (followBottom) container.scrollTop = container.scrollHeight;
       setOuterScrolledAway(container.scrollHeight - container.clientHeight - container.scrollTop > 1);
       lastDesktopLayout = layoutKey();
-      onLayoutRef.current?.();
     };
     let lastReportedSize = "";
     let lastDesktopLayout = "";

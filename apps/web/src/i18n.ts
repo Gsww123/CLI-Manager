@@ -3,6 +3,8 @@ export type ResolvedLanguage = Exclude<LanguageMode, "auto">;
 
 const dictionary = {
   "zh-CN": {
+    resizeProjects: "调整项目侧栏宽度",
+    resizeFiles: "调整文件侧栏宽度",
     collapseProjects: "收起项目侧栏",
     expandProjects: "展开项目侧栏",
     projectFiles: "项目文件",
@@ -368,6 +370,8 @@ const dictionary = {
     close: "关闭",
   },
   "en-US": {
+    resizeProjects: "Resize project sidebar",
+    resizeFiles: "Resize file sidebar",
     collapseProjects: "Collapse project sidebar",
     expandProjects: "Expand project sidebar",
     projectFiles: "Project files",

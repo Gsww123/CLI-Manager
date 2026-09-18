@@ -13,7 +13,7 @@ const { readProjectFiles, parseFileEntries, parseFilePreview } = await import(mo
   read("../apps/web/src/projectFiles.ts").replace('"./requestId"', JSON.stringify(requestIdUrl))
     .replace('"./webClient"', JSON.stringify(clientUrl)),
 ));
-const { canDockFiles, fileDockWidth } = await import(moduleUrl(read("../apps/web/src/fileSidebarLayout.ts")));
+const { sidebarLayout } = await import(moduleUrl(read("../apps/web/src/fileSidebarLayout.ts")));
 const context = { key: "p:w", projectId: "p", worktreeId: "w", cwd: "C:/work" };
 
 test("submit once, poll same operation, freeze project and Worktree identity", async () => {
@@ -90,56 +90,62 @@ test("preview preserves literal text and rejects non-image or malformed payloads
   assert.throws(() => parseFilePreview({ mimeType: "image/png", dataBase64: "bad:url" }, true), /invalid/);
 });
 
-test("dock only in real spare desktop width; hysteresis avoids threshold flicker", () => {
-  assert.equal(canDockFiles(1400, 1200, 800, false, false), true);
-  assert.equal(canDockFiles(1400, 1200, 1000, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 1300, false, false), false);
-  assert.equal(canDockFiles(390, 390, 30, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 800, true, false), false);
-  assert.equal(canDockFiles(1400, 1200, 800, false, false, true), false);
-  assert.equal(canDockFiles(800, 800, 400, false, false), true);
-  assert.equal(canDockFiles(767, 767, 300, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 0, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 960, false, false), true);
-  assert.equal(canDockFiles(1400, 1200, 961, false, false), false);
-  assert.equal(canDockFiles(1400, 1200, 970, false, true), true);
-  assert.equal(canDockFiles(1400, 1200, 976, false, true), true);
-  assert.equal(canDockFiles(1400, 1200, 977, false, true), false);
+test("desktop widths are user-sized, not canvas blank-space dependent", () => {
+  const layout = sidebarLayout(1920, 350, 520, true, true);
+  assert.equal(layout.projects, 350);
+  assert.equal(layout.files, 520);
+  assert.equal(layout.desktop, true);
+  assert.equal(sidebarLayout(1920, 250, 280, true, false).files, 0);
+  assert.equal(sidebarLayout(1920, 250, 280, false, true).projects, 0);
+  assert.equal(sidebarLayout(390, 250, 280, true, true).desktop, false);
+  assert.equal(sidebarLayout(767, 250, 280, true, true).files, 0);
 });
 
-test("dock width follows spare space between 200 and 300 without covering the canvas", () => {
-  assert.equal(fileDockWidth(224), 200);
-  assert.equal(fileDockWidth(240), 216);
-  assert.equal(fileDockWidth(290), 266);
-  assert.equal(fileDockWidth(324), 300);
-  assert.equal(fileDockWidth(600), 300);
-  for (let spare = 224; spare <= 600; spare += 0.5) {
-    const width = fileDockWidth(spare);
-    assert.ok(width >= 200 && width <= 300);
-    assert.ok(width + 24 <= spare);
+test("all sidebar combinations reserve terminal space including device details", () => {
+  for (const left of [true, false]) for (const right of [true, false]) for (const details of [true, false]) {
+    for (let viewport = 768; viewport <= 2560; viewport += 7) {
+      const layout = sidebarLayout(viewport, 640, 640, left, right, details);
+      assert.ok(layout.projects >= (left ? 200 : 0) && layout.projects <= 640);
+      assert.ok(layout.files >= (right ? 200 : 0) && layout.files <= 640);
+      const used = layout.projects + layout.files + layout.details + (Number(left) + Number(right)) * 6;
+      assert.ok(viewport - used >= 320, `terminal too narrow at ${viewport}`);
+      if (left) assert.ok(layout.projectMax >= layout.projects);
+      if (right) assert.ok(layout.fileMax >= layout.files);
+    }
   }
-  assert.ok(read("../apps/web/src/views.tsx").includes('"--files-dock-width": `${fileLayout.width}px`'));
-  const css = read("../apps/web/src/projectFiles.css");
-  assert.ok(css.includes("width: var(--files-dock-width, 200px)"));
-  assert.equal(css.split("right: calc(var(--files-dock-width, 200px) + 32px)").length - 1, 2);
+  const narrow = sidebarLayout(768, 500, 600, true, true);
+  assert.ok(narrow.files < 600);
+  // Clamping a narrow viewport never overwrites the remembered preference.
+  assert.equal(sidebarLayout(1920, 500, 600, true, true).files, 600);
 });
 
-test("Web entry replaces legacy modal and does not change terminal sizing", () => {
+test("Web columns keep terminals mounted and remove geometry-driven overlays", () => {
   const views = read("../apps/web/src/views.tsx");
   assert.ok(!views.includes("ManagementPanel"));
   assert.match(views, /ProjectFilesPanel/);
-  assert.match(views, /setFilesOpen\(!fileLayout\.space/);
+  assert.match(views, /setFilesOpen\(!fileLayout\.desktop/);
   assert.match(views, /setFilesOpen\(false\); setFileContext\(undefined\); \}, \[selectedDevice\?\.id\]\)/);
   assert.match(views, /onSubmitManagement/); // context menus still use the transport
   const css = read("../apps/web/src/projectFiles.css");
-  assert.match(css, /project-files-dock \{ position: absolute/);
+  assert.doesNotMatch(css, /position: absolute|has-files-dock/);
+  assert.match(views, /gridTemplateColumns: columns/);
+  assert.match(views, /side="projects"/);
+  assert.match(views, /side="files"/);
   assert.ok(!css.includes(".web-terminal-stack {"));
   const panel = read("../apps/web/src/ProjectFilesPanel.tsx");
   assert.match(panel, /request.current\?\.abort/);
   assert.ok(!panel.includes("dangerouslySetInnerHTML"));
   assert.match(panel, /entries\.slice\(0, visibleCount\[path\] \?\? 200\)/);
   const layout = read("../apps/web/src/useFileSidebarLayout.ts");
-  assert.match(layout, /\.xterm-screen/);
-  assert.doesNotMatch(layout, /scrollHeight > viewport\.clientHeight/);
-  assert.match(layout, /viewport\.scrollWidth > viewport\.clientWidth/);
+  assert.doesNotMatch(layout, /xterm-screen|scrollWidth|sessionId/);
+  assert.match(layout, /localStorage.setItem/);
+  const resize = read("../apps/web/src/SidebarResizeHandle.tsx");
+  assert.match(resize, /setPointerCapture/);
+  assert.match(resize, /onPointerCancel/);
+  assert.match(resize, /onLostPointerCapture/);
+  assert.match(resize, /ArrowLeft/);
+  assert.match(panel, /getMaterialFileIcon/);
+  assert.match(panel, /searchOpen &&/);
+  assert.match(panel, /data-selected/);
+  assert.match(views, /hideHeader/);
 });

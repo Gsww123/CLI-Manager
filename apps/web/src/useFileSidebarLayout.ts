@@ -1,42 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { canDockFiles, fileDockWidth } from "./fileSidebarLayout";
+import { useEffect, useState } from "react";
+import { sidebarLayout } from "./fileSidebarLayout";
 
-export function useFileSidebarLayout(sessionId: string | null | undefined, split: boolean) {
-  const stackRef = useRef<HTMLDivElement>(null);
-  const [measured, setMeasured] = useState({ sessionId, split, space: false, width: 200 });
-  const frame = useRef<number | null>(null);
-  const measure = useCallback(() => {
-    if (frame.current !== null) cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => {
-      frame.current = null;
-      const stack = stackRef.current;
-      const screen = stack?.querySelector<HTMLElement>(".web-terminal-frame.active .xterm-screen");
-      const viewport = screen?.closest<HTMLElement>(".web-terminal");
-      if (!stack || !screen || !viewport || !screen.offsetWidth) {
-        setMeasured({ sessionId, split, space: false, width: 200 });
-        return;
-      }
-      // The xterm wrapper fills the viewport; the screen reflects actual text width.
-      // Horizontally scrollable output must remain accessible rather than be covered.
-      const right = screen.getBoundingClientRect().right + 12;
-      setMeasured((old) => ({ sessionId, split,
-        width: fileDockWidth(stack.getBoundingClientRect().right - right),
-        space: canDockFiles(window.innerWidth, stack.getBoundingClientRect().right, right, split,
-          old.sessionId === sessionId && old.space,
-          viewport.scrollWidth > viewport.clientWidth + 1) &&
-          stack.clientWidth >= 640 && right - stack.getBoundingClientRect().left >= 240 }));
-    });
-  }, [sessionId, split]);
+function storedWidth(key: string, fallback: number) {
+  try {
+    const value = Number(localStorage.getItem(key));
+    return Number.isFinite(value) && value >= 200 && value <= 640 ? value : fallback;
+  } catch { return fallback; }
+}
+
+export function useFileSidebarLayout(leftOpen: boolean, rightOpen: boolean, detailsOpen: boolean) {
+  const [viewport, setViewport] = useState(window.innerWidth);
+  const [left, setLeft] = useState(() => storedWidth("web-project-sidebar-width", 250));
+  const [right, setRight] = useState(() => storedWidth("web-file-sidebar-width", 280));
   useEffect(() => {
-    measure();
-    const observer = new ResizeObserver(measure);
-    if (stackRef.current) observer.observe(stackRef.current);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect(); window.removeEventListener("resize", measure);
-      if (frame.current !== null) cancelAnimationFrame(frame.current);
-    };
-  }, [sessionId, measure]);
-  return { stackRef, space: measured.sessionId === sessionId && measured.split === split && measured.space,
-    width: measured.width, measure };
+    const resize = () => setViewport(window.innerWidth);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  const resize = (side: "projects" | "files", width: number, persist: boolean) => {
+    if (side === "projects") setLeft(width); else setRight(width);
+    if (persist) {
+      try { localStorage.setItem(side === "projects" ? "web-project-sidebar-width" : "web-file-sidebar-width", String(width)); }
+      catch { /* Keep the browser-session width when storage is unavailable. */ }
+    }
+  };
+  return { ...sidebarLayout(viewport, left, right, leftOpen, rightOpen, detailsOpen), resize };
 }

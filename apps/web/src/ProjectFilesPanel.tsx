@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, File, Folder, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
+import { getMaterialFileIcon, getMaterialFolderIcon } from "@baybreezy/file-extension-icon";
 import type { Device, ProjectContext } from "./domain";
 import type { TranslationKey } from "./i18n";
 import { parseFileEntries, parseFilePreview, readProjectFiles, type FileEntry, type FileReadKind } from "./projectFiles";
@@ -7,24 +8,27 @@ import "./projectFiles.css";
 
 type Props = { device?: Device; context?: ProjectContext; t: (key: TranslationKey) => string; onClose?: () => void };
 
-export function ProjectFilesPanel({ device, context, t, onClose }: Props) {
+export const ProjectFilesPanel = memo(function ProjectFilesPanel({ device, context, t, onClose }: Props) {
   const unavailable = !device || device.status !== "online" ? "filesOffline"
     : !context?.projectId ? "projectContextRequired"
       : !device.capabilities.includes("file.management") ? "capabilityUnavailable" : null;
   return <section className="project-files" aria-label={t("projectFiles")}>
-    <header className="project-files-heading">
-      <div><strong>{t("projectFiles")}</strong><small>{t("filesReadOnly")}</small></div>
-      {onClose && <button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X size={18} /></button>}
-    </header>
-    <div className="project-files-context" title={context?.cwd ?? undefined}>
-      <strong>{context?.projectName ?? t("projectContextRequired")}</strong>
-      {context?.branch && <span>{context.branch}</span>}
-      <small>{context?.cwd}</small>
-    </div>
-    {unavailable ? <p role="status">{t(unavailable)}</p> :
+    {unavailable ? <><FileHeading context={context} t={t} onClose={onClose} /><p role="status">{t(unavailable)}</p></> :
       <FileBrowser key={`${device!.id}:${context!.key}:${context!.projectId}:${context!.worktreeId}:${context!.cwd}`}
-        device={device!} context={context!} t={t} />}
+        device={device!} context={context!} t={t} onClose={onClose} />}
   </section>;
+});
+
+function FileHeading({ context, t, onClose, children }: Pick<Props, "context" | "t" | "onClose"> & { children?: React.ReactNode }) {
+  return <header className="project-files-heading">
+    <div className="project-files-title" title={[context?.cwd, context?.branch, t("filesReadOnly")].filter(Boolean).join("\n")}>
+      <strong>{context?.projectName ?? t("projectFiles")}</strong>
+      {context?.branch && <small>{context.branch}</small>}
+    </div>
+    <div className="project-files-actions">{children}
+      {onClose && <button className="icon-button" type="button" title={t("close")} aria-label={t("close")} onClick={onClose}><X size={16} /></button>}
+    </div>
+  </header>;
 }
 
 function fileError(error: unknown, kind: FileReadKind): TranslationKey {
@@ -36,22 +40,26 @@ function fileError(error: unknown, kind: FileReadKind): TranslationKey {
   return "filesReadFailed";
 }
 
-function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "context" | "t">>) {
+function FileBrowser({ device, context, t, onClose }: Required<Pick<Props, "device" | "context" | "t">> & Pick<Props, "onClose">) {
   const [directories, setDirectories] = useState<Record<string, FileEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState<Record<string, number>>({});
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [results, setResults] = useState<FileEntry[] | null>(null);
   const [preview, setPreview] = useState<{ path: string; image: boolean; content: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
   const [error, setError] = useState<TranslationKey | null>(null);
   const request = useRef<AbortController | null>(null);
+  const requestKind = useRef<FileReadKind | null>(null);
 
   const run = async (kind: FileReadKind, path: string) => {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
+    requestKind.current = kind;
     setBusy(true);
     setLoadingPath(kind === "file.list" ? path : null);
     setError(null);
@@ -79,6 +87,7 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
   }, []);
 
   const select = (entry: FileEntry) => {
+    setSelectedPath(entry.path);
     if (entry.kind === "directory") {
       if (expanded.has(entry.path)) setExpanded((old) => { const next = new Set(old); next.delete(entry.path); return next; });
       else if (directories[entry.path]) setExpanded((old) => new Set([...old, entry.path]));
@@ -93,10 +102,12 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
       const folder = entry.kind === "directory";
       const open = expanded.has(entry.path) && !ancestors.has(entry.path);
       return <li key={entry.path}>
-        <button type="button" disabled={busy && !directories[entry.path]} title={entry.path} aria-expanded={folder ? open : undefined} onClick={() => select(entry)}>
+        <button type="button" data-selected={selectedPath === entry.path} disabled={busy && !directories[entry.path]}
+          title={entry.path} aria-expanded={folder ? open : undefined} onClick={() => select(entry)}>
           {folder && busy && loadingPath === entry.path ? <LoaderCircle size={14} className="project-files-spinner" /> :
             folder ? open ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : <span className="file-indent" />}
-          {folder ? <Folder size={16} /> : <File size={16} />}<span>{entry.name}</span>
+          <img src={folder ? getMaterialFolderIcon(entry.name, open) : getMaterialFileIcon(entry.name)} width={16} height={16} alt="" draggable={false} />
+          <span>{entry.name}</span>
         </button>
         {folder && open && directories[entry.path] && (directories[entry.path].length
           ? renderEntries(directories[entry.path], entry.path, new Set([...ancestors, entry.path])) : <small className="file-empty">{t("filesEmpty")}</small>)}
@@ -109,19 +120,30 @@ function FileBrowser({ device, context, t }: Required<Pick<Props, "device" | "co
   </ul>;
 
   return <>
-    <form className="project-files-search" onSubmit={(event) => {
+    <FileHeading context={context} t={t} onClose={onClose}>
+      <button className="icon-button" type="button" aria-expanded={searchOpen} title={t("filesSearch")} aria-label={t("filesSearch")}
+        onClick={() => {
+          setSearchOpen(!searchOpen);
+          if (searchOpen) {
+            if (requestKind.current === "file.search") { request.current?.abort(); setBusy(false); setLoadingPath(null); }
+            setQuery(""); setResults(null); setError(null);
+          }
+        }}><Search size={16} /></button>
+      <button className="icon-button" type="button" title={t("refresh")} aria-label={t("refresh")} onClick={() => {
+        setQuery(""); setResults(null); setPreview(null); setSelectedPath(null);
+        setDirectories({}); setExpanded(new Set()); setVisibleCount({}); void run("file.list", "");
+      }}><RefreshCw size={16} /></button>
+    </FileHeading>
+    {searchOpen && <form className="project-files-search" onSubmit={(event) => {
       event.preventDefault();
       if (busy) return;
       setPreview(null); setResults(null);
       if (query.trim()) void run("file.search", query.trim());
     }}>
-      <input disabled={busy} aria-label={t("filesSearch")} placeholder={t("filesSearch")} maxLength={512} value={query}
+      <input autoFocus disabled={busy} aria-label={t("filesSearch")} placeholder={t("filesSearch")} maxLength={512} value={query}
         onChange={(event) => { setQuery(event.target.value); if (!event.target.value) setResults(null); }} />
       <button className="icon-button" type="submit" disabled={busy || !query.trim()} aria-label={t("filesSearch")}><Search size={17} /></button>
-      <button className="icon-button" type="button" aria-label={t("refresh")} onClick={() => {
-        setQuery(""); setResults(null); setPreview(null); setDirectories({}); setExpanded(new Set()); setVisibleCount({}); void run("file.list", "");
-      }}><RefreshCw size={17} /></button>
-    </form>
+    </form>}
     {busy && <p role="status">{t("filesLoading")}</p>}
     {error && <p role="alert">{t(error)}</p>}
     <div className="project-files-content" aria-busy={busy}>
