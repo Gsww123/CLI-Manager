@@ -65,6 +65,11 @@
 
 ## [V1.4.1] - 2026-09-15
 
+### Windows 便携包资源补齐
+
+- 修复便携 ZIP 遗漏浏览器端 `apps/web/dist/`（HTML、JS/CSS）及 `cli-manager-daemon.exe`、`cli-manager-web-daemon.exe`，补齐 Web 页面和辅助程序。
+- 打包前校验四个可执行文件、Web 入口及资源目录；缺失时直接失败，避免生成不完整的便携包。
+
 ### 终端 Markdown 预览回答星标
 
 - 终端 Markdown 预览的历史回答列表支持逐条星标：每行右侧提供行内星标按钮。星标按会话持久化，重开预览、切换分屏或重启应用后仍然保留。
