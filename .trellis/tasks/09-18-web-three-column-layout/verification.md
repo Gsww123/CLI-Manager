@@ -30,6 +30,15 @@ Implementation verification before packaging:
 - Codebase-memory index was refreshed and found the new geometry owner/bridge/browser symbols. Its change detector reported the expected 26 files and no additional impacted symbols.
 - GitNexus CLI remains unavailable for impact/detect-changes because `.gitnexus` is in the pre-existing unowned state and has no code index database. Current source, scoped diffs, codebase-memory impact tracing, compilation and tests are the documented fallback evidence.
 
+Packaging:
+
+- Code was committed before packaging as `176ab366` (`fix(web): sync shared terminal geometry proactively`).
+- `npm run tauri:build:local -- --bundles nsis` passed; only the NSIS bundle was requested and produced.
+- Installer: `src-tauri/target/release/bundle/nsis/CLI-Manager_1.4.0_x64-setup.exe` (27,139,741 bytes; 2026-09-20 10:42:29 local).
+- SHA256: `A59F795AF7436D67032B948EEF9FCDD72354F4F2E3D14E288C8968006094EEC7`.
+- Final Web index references `index-B31MdRAM.js` and `index-C4qoI8Dp.css`; main, Web daemon, daemon and Codex proxy Release executables were rebuilt during the same bundle run.
+- Previous installer preserved as `CLI-Manager_1.4.0_before-geometry-sync-20260920.exe`. No remote push or merge was performed.
+
 User approved implementation and NSIS packaging. Installer version remains 1.4.0; release notes use TEMP.
 
 ## Cause and discovery
