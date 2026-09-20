@@ -115,6 +115,9 @@ mod web_device_outbox;
 mod webdav;
 #[path = "infrastructure/process/wsl.rs"]
 mod wsl;
+#[cfg(target_os = "windows")]
+#[path = "shared/windows_command_line.rs"]
+mod windows_command_line;
 
 use log::LevelFilter;
 use serde_json::Value;
