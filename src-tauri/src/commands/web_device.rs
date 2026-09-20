@@ -139,6 +139,8 @@ pub struct TerminalStatusRequest {
     pub status: String,
     pub exit_code: Option<i32>,
     pub control_mode: Option<String>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
 }
 
 #[derive(Default)]
@@ -1528,6 +1530,8 @@ pub(crate) fn web_device_terminal_status_blocking(
         status: request.status.clone(),
         exit_code: request.exit_code,
         control_mode: request.control_mode.clone(),
+        cols: request.cols,
+        rows: request.rows,
     };
     if manager
         .runtime
@@ -1542,6 +1546,8 @@ pub(crate) fn web_device_terminal_status_blocking(
         status: request.status,
         exit_code: request.exit_code,
         control_mode: request.control_mode,
+        cols: request.cols,
+        rows: request.rows,
     })
 }
 

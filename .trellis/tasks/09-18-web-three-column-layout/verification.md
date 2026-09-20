@@ -1,5 +1,44 @@
 # Web three-column layout
 
+## 2026-09-20 follow-up: proactive shared-terminal geometry sync
+
+The user approved reopening this Trellis task for the Web terminal's stale initial geometry. This is a root-cause fix because the failure crosses desktop viewport ownership, Tauri IPC, daemon protocol, server relay and browser rendering.
+
+Root cause: desktop-owned terminal geometry is only carried by output frames, so a silent desktop resize leaves the browser on stale columns/rows until the next model output; independently, legacy browser width/height preferences still constrain the terminal canvas and can preserve an obsolete partially-filled layout.
+
+Discovery list and implementation scope:
+
+- Desktop viewport ownership: expose the visible desktop terminal's current columns/rows.
+- Desktop Web bridge: deduplicate and proactively publish geometry through the existing command-drain cadence.
+- Tauri command / Web daemon / shared protocol / server relay: add optional, validated columns/rows to terminal status without breaking older peers.
+- Browser state / workbench / WebTerminal: consume geometry status immediately and refresh the active xterm canvas without remounting it.
+- Browser display preferences: remove the legacy width/height controls and migrate saved values to full available area.
+- Confirmed unrelated: desktop visual layout, PTY process sizing ownership, WSL/SSH execution, hooks and file-tree data loading.
+
+Scenario matrix: desktop-owned and Web-owned control; silent resize and resize followed by output; active/inactive tab and tab switching; one/multiple sessions and subagent split; wide/narrow desktop browser and mobile; old/new/missing display preferences; disconnected/reconnected device; local PowerShell/CMD/Pwsh, WSL and SSH. Geometry remains authoritative only for the visible desktop viewport; Web-owned sessions continue using browser sizing.
+
+Verification results will be appended after implementation.
+
+Implementation verification before packaging:
+
+- Desktop viewport ownership and Web display/layout tests: 19 passed.
+- Shared protocol terminal-status compatibility test: passed; optional geometry is camelCase and legacy frames still deserialize without it.
+- WebSocket relay integration test: passed, including `controlMode`, `cols` and `rows` delivery to the browser.
+- Desktop Web outbox library tests: 8 passed. The broader unfiltered Cargo test command remains blocked by the pre-existing `tests/web_listener.rs` fixture missing `Config.trusted_network`; the scoped library suite and `cargo check` pass.
+- Web production build, Web typecheck, desktop TypeScript typecheck and all three Rust crate checks passed. Vite retains the existing large-chunk warning.
+- Strict architecture check: 1155 source files, zero files above 2000 lines and zero violations.
+- Codebase-memory index was refreshed and found the new geometry owner/bridge/browser symbols. Its change detector reported the expected 26 files and no additional impacted symbols.
+- GitNexus CLI remains unavailable for impact/detect-changes because `.gitnexus` is in the pre-existing unowned state and has no code index database. Current source, scoped diffs, codebase-memory impact tracing, compilation and tests are the documented fallback evidence.
+
+Packaging:
+
+- Code was committed before packaging as `176ab366` (`fix(web): sync shared terminal geometry proactively`).
+- `npm run tauri:build:local -- --bundles nsis` passed; only the NSIS bundle was requested and produced.
+- Installer: `src-tauri/target/release/bundle/nsis/CLI-Manager_1.4.0_x64-setup.exe` (27,139,741 bytes; 2026-09-20 10:42:29 local).
+- SHA256: `A59F795AF7436D67032B948EEF9FCDD72354F4F2E3D14E288C8968006094EEC7`.
+- Final Web index references `index-B31MdRAM.js` and `index-C4qoI8Dp.css`; main, Web daemon, daemon and Codex proxy Release executables were rebuilt during the same bundle run.
+- Previous installer preserved as `CLI-Manager_1.4.0_before-geometry-sync-20260920.exe`. No remote push or merge was performed.
+
 User approved implementation and NSIS packaging. Installer version remains 1.4.0; release notes use TEMP.
 
 ## Cause and discovery

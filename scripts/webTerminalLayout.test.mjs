@@ -137,4 +137,8 @@ test("real component gates resize on visibility/output drain and deduplicates re
   assert.match(report, /if \(ownsSize\) \{[\s\S]*requested !== lastReportedSize[\s\S]*resizeRef.current/);
   assert.match(component, /data-display-fit/);
   assert.doesNotMatch(component, /<select data-display-mode/);
+  assert.doesNotMatch(component, /data-display-(?:width|height)/);
+  assert.match(component, /desktopCols/);
+  assert.match(component, /terminal\.resize\(desktopCols, desktopRows\)/);
+  assert.match(component, /desktopGeometryRef\.current[\s\S]*terminal\.resize\(geometry\.cols, geometry\.rows\)/);
 });

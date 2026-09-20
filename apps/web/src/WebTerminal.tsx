@@ -19,6 +19,8 @@ type WebTerminalProps = {
   status: string;
   stream: TerminalStream;
   controlMode: TerminalControlMode;
+  desktopCols?: number;
+  desktopRows?: number;
   theme: "light" | "dark";
   errorLabel: string;
   scrollLabel: string;
@@ -82,7 +84,7 @@ function appendFrame(batches: RenderBatch[], frame: TerminalOutputFrame, reset =
   });
 }
 
-export function WebTerminal({ sessionId, active, status, stream, controlMode, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
+export function WebTerminal({ sessionId, active, status, stream, controlMode, desktopCols, desktopRows, theme, source, errorLabel, scrollLabel, onInput, onResize, onImageUpload, onMobileToolbarCollapsed, t = (key) => translate("zh-CN", key) }: WebTerminalProps) {
   const [display, setDisplay] = useState(readDisplay);
   const [actualFontSize, setActualFontSize] = useState<number | null>(null);
   const displayRef = useRef(display);
@@ -130,6 +132,7 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   const cursorVisibleRef = useRef(true);
   const resizeRef = useRef(onResize);
   const controlModeRef = useRef(controlMode);
+  const desktopGeometryRef = useRef<{ cols: number; rows: number } | null>(null);
   const activeRef = useRef(active);
   const enabledRef = useRef(active && status === "running");
   enabledRef.current = active && status === "running";
@@ -145,6 +148,9 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   };
   resizeRef.current = onResize;
   controlModeRef.current = controlMode;
+  desktopGeometryRef.current = controlMode === "desktop" && desktopCols && desktopRows
+    ? { cols: desktopCols, rows: desktopRows }
+    : null;
   activeRef.current = active;
 
   useEffect(() => {
@@ -272,7 +278,15 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
       } finally {
         draining = false;
         if (!disposed && renderQueue.length) scheduleFlush();
-        if (!disposed && !renderQueue.length) scheduleSize();
+        if (!disposed && !renderQueue.length) {
+          const geometry = !replayFrames && !queuedChunks.length && !partialFrames.length
+            ? desktopGeometryRef.current
+            : null;
+          if (geometry && (terminal.cols !== geometry.cols || terminal.rows !== geometry.rows)) {
+            terminal.resize(geometry.cols, geometry.rows);
+          }
+          scheduleSize();
+        }
       }
     };
 
@@ -520,6 +534,28 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
   }, [active, controlMode]);
 
   useEffect(() => {
+    if (controlMode !== "desktop" || !desktopCols || !desktopRows) return;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    if (terminal.cols !== desktopCols || terminal.rows !== desktopRows) {
+      terminal.resize(desktopCols, desktopRows);
+    }
+    invalidateLayoutRef.current?.();
+    let repaintFrame: number | null = null;
+    const layoutFrame = requestAnimationFrame(() => {
+      invalidateLayoutRef.current?.();
+      repaintFrame = requestAnimationFrame(() => {
+        const current = terminalRef.current;
+        if (activeRef.current && current && current.rows > 0) current.refresh(0, current.rows - 1);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(layoutFrame);
+      if (repaintFrame !== null) cancelAnimationFrame(repaintFrame);
+    };
+  }, [controlMode, desktopCols, desktopRows, active]);
+
+  useEffect(() => {
     layoutRef.current?.();
   }, [display]);
 
@@ -652,12 +688,10 @@ export function WebTerminal({ sessionId, active, status, stream, controlMode, th
           <button type="button" data-display-fit aria-pressed={display.mode !== "manual"}
             onClick={() => updateDisplay({ mode: "width", fontSize: 14, zoom: 100 })}>{t("terminalDisplayWidth")}</button>
         </div>
-        <label>{t("terminalDisplayAreaWidth")} <output>{display.width}%</output><input data-display-width type="range" min="30" max="100" value={display.width} onChange={(event) => updateDisplay({ width: Number(event.target.value) })} /></label>
-        <label>{t("terminalDisplayAreaHeight")} <output>{display.height}%</output><input data-display-height type="range" min="30" max="100" value={display.height} onChange={(event) => updateDisplay({ height: Number(event.target.value) })} /></label>
         <button data-display-reset type="button" onClick={() => updateDisplay(DEFAULT_DISPLAY)}>{t("terminalDisplayReset")}</button>
       </div>
     </details>
-    <div className="web-terminal-display-area" style={{ width: `${display.width}%`, height: `${display.height}%` }}>
+    <div className="web-terminal-display-area">
       <div className="web-terminal" ref={containerRef} data-status={status}
         onScroll={(event) => { const host = event.currentTarget; setOuterScrolledAway(host.scrollHeight - host.clientHeight - host.scrollTop > 1); }} />
     </div>
