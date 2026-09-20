@@ -137,6 +137,8 @@ pub enum Request {
         status: String,
         exit_code: Option<i32>,
         control_mode: Option<String>,
+        cols: Option<u16>,
+        rows: Option<u16>,
     },
     PublishHistory {
         #[serde(default)]
@@ -483,12 +485,16 @@ impl DaemonState {
                 status,
                 exit_code,
                 control_mode,
+                cols,
+                rows,
             } => {
                 self.queue(DeviceToServerFrame::TerminalStatus {
                     session_id,
                     status,
                     exit_code,
                     control_mode,
+                    cols,
+                    rows,
                 })?;
                 Ok(None)
             }

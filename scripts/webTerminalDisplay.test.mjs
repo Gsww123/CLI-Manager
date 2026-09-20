@@ -10,10 +10,10 @@ const javascript = ts.transpileModule(source, {
 const { DEFAULT_DISPLAY, normalizeDisplay, readDisplay, stepDisplaySize } =
   await import(`data:text/javascript,${encodeURIComponent(javascript)}`);
 
-test("legacy settings retain mode and manual font with 100% automatic zoom", () => {
+test("legacy settings retain mode and manual font while discarding region limits", () => {
   for (const mode of ["manual", "width", "contain"]) {
     const result = normalizeDisplay({ mode, fontSize: 22, width: 75, height: 90 });
-    assert.deepEqual(result, { mode: mode === "manual" ? "manual" : "width", fontSize: 22, zoom: 100, width: 75, height: 90 });
+    assert.deepEqual(result, { mode: mode === "manual" ? "manual" : "width", fontSize: 22, zoom: 100 });
   }
   assert.deepEqual(normalizeDisplay(null), DEFAULT_DISPLAY);
 });
@@ -51,6 +51,8 @@ test("browser settings round-trip and recover from invalid storage", () => {
   try {
     assert.equal(readDisplay().zoom, 150);
     assert.equal(readDisplay().mode, "width");
+    saved = JSON.stringify({ mode: "manual", fontSize: 18, zoom: 100, width: 40, height: 50 });
+    assert.deepEqual(readDisplay(), { mode: "manual", fontSize: 18, zoom: 100 });
     saved = "broken JSON";
     assert.deepEqual(readDisplay(), DEFAULT_DISPLAY);
   } finally {

@@ -849,6 +849,8 @@ export function Workbench(props: WorkbenchProps) {
                       status={status}
                       stream={props.terminalStream}
                       controlMode={tab.controlMode}
+                      desktopCols={tab.cols}
+                      desktopRows={tab.rows}
                       source={
                         props.projectContexts.find((context) => context.key === tab.contextKey)
                           ?.source

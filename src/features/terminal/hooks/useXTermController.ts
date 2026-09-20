@@ -711,7 +711,11 @@ export function useXTermController({ sessionId, isActive = true, isVisible = tru
         }
       });
     };
-    const unregister = registerDesktopViewport(sessionId, { visible, restore });
+    const dimensions = () => {
+      const terminal = terminalRef.current;
+      return terminal ? { cols: terminal.cols, rows: terminal.rows } : null;
+    };
+    const unregister = registerDesktopViewport(sessionId, { visible, restore, dimensions });
     document.addEventListener("visibilitychange", restore);
     restore();
     return () => {

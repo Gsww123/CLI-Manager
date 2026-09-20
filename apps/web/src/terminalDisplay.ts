@@ -1,6 +1,6 @@
-export type TerminalDisplay = { mode: "manual" | "width" | "contain"; fontSize: number; zoom: number; width: number; height: number };
+export type TerminalDisplay = { mode: "manual" | "width" | "contain"; fontSize: number; zoom: number };
 export const DISPLAY_KEY = "cli-manager.web-terminal-display.v1";
-export const DEFAULT_DISPLAY: TerminalDisplay = { mode: "width", fontSize: 14, zoom: 100, width: 100, height: 100 };
+export const DEFAULT_DISPLAY: TerminalDisplay = { mode: "width", fontSize: 14, zoom: 100 };
 
 export function normalizeDisplay(value: unknown): TerminalDisplay {
   const input = value && typeof value === "object" ? value as Partial<TerminalDisplay> : {};
@@ -10,8 +10,6 @@ export function normalizeDisplay(value: unknown): TerminalDisplay {
     mode: input.mode === "manual" ? "manual" : "width",
     fontSize: clamp(input.fontSize, 14, 1, 36),
     zoom: clamp(input.zoom, 100, 25, 300),
-    width: clamp(input.width, 100, 30, 100),
-    height: clamp(input.height, 100, 30, 100),
   };
 }
 
