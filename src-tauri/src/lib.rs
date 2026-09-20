@@ -689,6 +689,7 @@ pub fn run() {
             commands::fs::clipboard_import::file_import_external,
             commands::fs::clipboard_import::file_import_image,
             commands::fs::clipboard_attach_image_files,
+            commands::fs::file_attach_image_data,
             commands::fs::check_paths_exist,
             commands::fs::file_get_path_kind,
             commands::fs::file_watch_start,
