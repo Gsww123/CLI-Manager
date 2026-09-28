@@ -8,6 +8,22 @@ The baseline difference `5887e8ac..64836f5e` is `CHANGELOG.md` only; the existin
 compare all four executable SHA256 hashes before/after bundling. Commit source before
 packaging; record the final artifact after successful verification.
 
+Packaging result (2026-09-28):
+
+- Source committed before packaging as `e42f81ca`.
+- Web build passed; ran `tauri bundle --bundles nsis --config src-tauri/tauri.local.conf.json --ci`
+  with `CARGO_TARGET_DIR=src-tauri/target/local`. One NSIS bundle produced; no Cargo compile/MSI.
+- Installer: `src-tauri/target/local/release/bundle/nsis/CLI-Manager_1.4.1_x64-setup.exe`,
+  29,950,034 bytes, written 2026-09-28 16:51:58 +08:00.
+- Installer SHA256: `D07B6148055312F03B3286CD23E1FEAFFE9B9658F5245855DF324F7E4283CFB8`.
+- Generated NSIS manifest includes final `index-CYxBGQFY.js`, `index-DGGuWXPU.css` and
+  matching `index.html`. All four local Release executable SHA256 hashes are unchanged
+  after bundling (Tauri temporarily sets and then restores the main executable bundle marker).
+- Old installer preserved alongside it as
+  `CLI-Manager_1.4.1_x64-setup-before-web-file-loading-20260928.exe`.
+- No installed app/service was started, stopped or modified; installer runtime acceptance
+  remains manual. No remote push or branch merge performed.
+
 User approved implementation on `fix/web-file-tree-loading`, created from freshly fetched
 `origin/master` (`64836f5e`). Release notes remain 1.4.1. No installer, remote push or merge
 was requested in this implementation turn.
