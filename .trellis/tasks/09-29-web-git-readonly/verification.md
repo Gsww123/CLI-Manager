@@ -45,3 +45,12 @@
 - Additional actual split/unified row-rendering checks passed: line numbers, insert/delete classes, HTML escaping, and snapshot dependency boundary. Total targeted checks: 50 passed. Final strict architecture: 1189 files, zero violations.
 - Refreshed codebase-memory index and confirmed GitHistoryWorkspace/GitSnapshotDiff callers. Change detection lists tracked paths but omits untracked files/symbol impact; explicit Git diff/status and source/test review cover all added entry points before staging.
 - Additional manual acceptance: desktop history branch filter/table/selection/details; click working/history file for separate split Diff; light/dark and zh-CN/en-US; mobile unified default, switch split, branch expand, list/detail return; nested Esc/Tab closes only top dialog and restores focus; long lines/rename/binary/large patches; rapid repository/search changes and offline recovery. Visual acceptance is not claimed as automated.
+
+### Corrected NSIS delivery
+
+- Code commit `75afba30`; `npm run tauri:build:local -- --bundles nsis --ci` completed successfully. Desktop frontend 2m31s, Web16.30s, Rust release2m33s, then NSIS. No MSI or remote push.
+- Package: `src-tauri/target/local/release/bundle/nsis/CLI-Manager_1.4.1_x64-setup.exe`; 29,988,080 bytes; 2026-09-29 11:30:35 +08.
+- SHA256: `ED84A90258E866981E263060D3EE2A12011A21273925C500B9C0597787EE4892`.
+- Verified NSIS script includes `index-CmHmTOmk.js`, `index-7O9kQf_9.css`, `gitDiffParser.worker-D5x4xMSv.js` and desktop/Web daemon resources; Web index references the same assets.
+- Previous package retained as `CLI-Manager_1.4.1_x64-setup-before-git-layout-20260929.exe`, SHA256 `8207647C8D42F1668A674E2950B4B65CF44BE662143C5AB82F845ACB255B059C`.
+- Install after fully exiting the old host, restart Web service, then reload browser. No data migration. Runtime UI verification remains manual per project policy.

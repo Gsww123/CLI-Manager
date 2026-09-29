@@ -15,12 +15,12 @@
   "branch": "feat/web-git-readonly",
   "base_branch": "master",
   "worktree_path": null,
-  "commit": "8505c78b",
+  "commit": "75afba30",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Implemented, committed and NSIS 1.4.1 built successfully; human visual acceptance pending. See verification.md for path, SHA256 and test checklist.",
+  "notes": "Desktop-style Web Git history/Diff correction committed as 75afba30; 50 targeted tests and strict architecture/type/build checks passed. Updated NSIS 1.4.1 built 2026-09-29 11:30 +08. Human visual acceptance pending; no remote push. See verification.md.",
   "meta": {}
 }
