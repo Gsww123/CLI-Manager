@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { webDeviceApi } from "../../../shared/lib/webDevice";
 
 export const WEB_GIT_READ_KINDS = new Set([
-  "git.repositories", "git.status", "git.diff", "git.history", "git.commit_detail", "git.commit_diff",
+  "git.repositories", "git.branches", "git.status", "git.diff", "git.history", "git.commit_detail", "git.commit_diff",
 ]);
 type Payload = Record<string, unknown>;
 type Repository = { relativePath: string; absolutePath: string; branch: string | null };
@@ -20,6 +20,9 @@ function relative(value: unknown, empty = false): string {
 export function validateWebGitRead(kind: string, payload: Payload): void {
   if (!WEB_GIT_READ_KINDS.has(kind)) invalid();
   relative(payload.repository ?? "", true);
+  if (payload.reference != null && (typeof payload.reference !== "string"
+    || payload.reference.length > 256 || !payload.reference.length
+    || payload.reference.startsWith("-") || /[\s\x00-\x1f\x7f]/.test(payload.reference))) invalid();
   for (const field of ["cursor", "commitId"]) {
     const value = payload[field];
     if (value != null && (typeof value !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(value))) invalid();
@@ -78,8 +81,9 @@ export async function executeWebGitRead(kind: string, payload: Payload, root: st
       ]);
       return { changes, branch };
     }
+    if (kind === "git.branches") return await invoke("git_list_branches", { projectPath });
     if (kind === "git.history") return await invoke("git_list_commits", {
-      projectPath, cursor: payload.cursor ?? null, search: payload.search ?? null, reference: null, filters: null,
+      projectPath, cursor: payload.cursor ?? null, search: payload.search ?? null, reference: payload.reference ?? null, filters: null,
     });
     if (kind === "git.commit_detail") return await invoke("git_get_commit_detail", { projectPath, commitId: payload.commitId });
     return await invoke(kind === "git.diff" ? "git_get_file_diff" : "git_get_commit_file_diff", {

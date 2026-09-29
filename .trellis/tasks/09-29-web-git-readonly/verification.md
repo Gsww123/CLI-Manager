@@ -33,5 +33,15 @@
 - NSIS script verified new `index-BIclJj0D.js`, `index-BorKK3Tw.css`, main executable and Web daemon resource paths; `apps/web/dist/index.html` references those same assets.
 - Prior installer retained as `CLI-Manager_1.4.1_x64-setup-before-web-git-20260929.exe`, SHA256 `D07B6148055312F03B3286CD23E1FEAFFE9B9658F5245855DF324F7E4283CFB8`.
 - Post-implementation index refresh confirmed real call edges for ProjectInspector and executeWebGitRead. Memory staged change detection returned an empty set despite staged changes; treated as unreliable and used explicit Git staged diff (23 paths) plus tests/source review as authority.
-- Diff deliberately renders full bounded read-only snapshot text; desktop parsed/editable viewer is not loaded into standalone Web. No promise of zero latency on uncached first reads.
+- Initial release rendered raw snapshot text; this presentation was rejected by the user and is superseded by the desktop-style correction below. No promise of zero latency on uncached first reads.
 - Existing installer retained as rollback; no schema migration. If running the old host/Web service, restart after installing to load new operation handlers.
+
+## Desktop-style presentation correction
+
+- Existing branch/task/version retained. Root cause and touchpoint inventory in design.md. Wide branch/log/detail history workspace, shared graph metadata/layout, independent split/unified snapshot Diff with line numbers and semantic color; responsive mobile list/detail navigation and collapsible branch list.
+- Reused desktop parser/Worker, limits and react-diff-view row primitives. Parser diagnostics injected from existing desktop controller, preserving its debug behavior. No desktop UI/PTY/Git writes changed. Existing branch query and validated history reference use the canonical readonly path, including nested repositories.
+- Web and desktop TypeScript passed; strict architecture passed with zero violations. Initial 47-test batch: one test's translation-key regex accidentally matched `split("/")`; tightened to word-boundary `t(...)`, all 47 passed on rerun.
+- Web production build passed (13.51s) and emitted the shared parser Worker. Only the existing chunk-size warning. No application or service launched for UI inspection.
+- Additional actual split/unified row-rendering checks passed: line numbers, insert/delete classes, HTML escaping, and snapshot dependency boundary. Total targeted checks: 50 passed. Final strict architecture: 1189 files, zero violations.
+- Refreshed codebase-memory index and confirmed GitHistoryWorkspace/GitSnapshotDiff callers. Change detection lists tracked paths but omits untracked files/symbol impact; explicit Git diff/status and source/test review cover all added entry points before staging.
+- Additional manual acceptance: desktop history branch filter/table/selection/details; click working/history file for separate split Diff; light/dark and zh-CN/en-US; mobile unified default, switch split, branch expand, list/detail return; nested Esc/Tab closes only top dialog and restores focus; long lines/rename/binary/large patches; rapid repository/search changes and offline recovery. Visual acceptance is not claimed as automated.

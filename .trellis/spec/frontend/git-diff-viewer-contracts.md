@@ -466,6 +466,13 @@ if (opened) onClose();
 
 ## Verification
 
+### Standalone Web snapshots
+
+- `api/GitSnapshotDiff.tsx` is the platform-neutral read-only entry for Web snapshots. It shares `useGitDiffParser`, the existing Worker, size normalization, Hunk height estimator and `react-diff-view` row primitives; it must not import desktop stores, Tauri or mutation controllers.
+- Parser diagnostics are an optional callback. The desktop controller passes `debugConsoleWarn`, preserving its existing logging behavior; Web exposes parse failure as a localized raw-content fallback.
+- Web owns top-layer dialog chrome, theme variables and split/unified state. Desktop defaults/layout remain untouched. Accepted large snapshots use worker parsing and visible-Hunk virtualization, never truncation.
+- Manual acceptance includes light/dark, mobile/desktop, nested modal Esc/Tab/focus restoration, binary/empty/oversize and malformed snapshots, plus rapid target changes. Do not start CLI-Manager or its services for automated UI inspection.
+
 Run:
 
 ```bash

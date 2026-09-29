@@ -588,7 +588,6 @@ async function executeGit(operation: WebDeviceOperation, payload: Payload): Prom
     return boundedResult(await executeWebGitRead(operation.kind, payload, rootPath), "git_result_too_large", "Git result exceeds Web transfer limit");
   }
   switch (operation.kind) {
-    case "git.branches": return invoke("git_list_branches", { projectPath: rootPath });
     case "git.fetch": await invoke("git_fetch", { projectPath: rootPath }); break;
     case "git.checkout": await invoke("git_checkout_branch", { projectPath: rootPath, branch: requiredString(payload, "branch", 255), remote: booleanValue(payload, "remote") }); break;
     case "git.create_branch": await invoke("git_create_branch", { projectPath: rootPath, branch: requiredString(payload, "branch", 255) }); break;

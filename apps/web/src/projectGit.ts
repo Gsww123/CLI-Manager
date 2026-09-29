@@ -3,7 +3,9 @@ import type { TranslationKey } from "./i18n";
 
 export type GitRepository = { relativePath: string; branch: string | null };
 export type GitChange = { path: string; status: string; staged: boolean; added: number; deleted: number };
-export type GitCommit = { id: string; shortId: string; title: string; authorName: string; authoredAt: number };
+export type GitCommit = { id: string; shortId: string; title: string; authorName: string; authoredAt: number;
+  parents: string[]; refs: string[]; authorEmail: string | null };
+export type GitBranch = { name: string; branchType: "local" | "remote"; current: boolean };
 export type GitPage = { commits: GitCommit[]; nextCursor: string | null };
 export type GitDetail = { commit: GitCommit; files: Array<GitChange & { oldPath: string | null; binary: boolean }> };
 export type GitStatus = { changes: GitChange[]; branch: { branch: string | null; ahead: number; behind: number; detached: boolean } };
@@ -27,7 +29,9 @@ function list<T>(value: unknown, parse: (item: unknown) => T): T[] {
 function commit(value: unknown): GitCommit {
   const data = record(value);
   return { id: text(data.id), shortId: text(data.shortId), title: text(data.title),
-    authorName: text(data.authorName), authoredAt: number(data.authoredAt) };
+    authorName: text(data.authorName), authoredAt: number(data.authoredAt),
+    parents: list(data.parents ?? [], text), refs: list(data.refs ?? [], text),
+    authorEmail: data.authorEmail == null ? null : text(data.authorEmail) };
 }
 function change(value: unknown): GitChange {
   const data = record(value);
@@ -60,6 +64,14 @@ export function parseGitDetail(value: JsonValue): GitDetail {
   }) };
 }
 export function parseGitDiff(value: JsonValue): string { return text(record(value).content); }
+
+export function parseGitBranches(value: JsonValue): GitBranch[] {
+  return list(value, (item) => {
+    const data = record(item);
+    if (data.branchType !== "local" && data.branchType !== "remote") throw new Error("invalid_git_result");
+    return { name: text(data.name), branchType: data.branchType, current: data.current === true };
+  });
+}
 
 export function gitReadError(error: unknown): TranslationKey {
   const code = error instanceof Error ? error.message : String(error);

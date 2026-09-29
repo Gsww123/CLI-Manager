@@ -5,6 +5,11 @@ const dictionary = {
   "zh-CN": {
     projectTools: "项目工具",
     gitChanges: "变更", gitHistory: "历史", gitRepository: "仓库",
+    gitBranches: "分支", gitLocalBranches: "本地分支", gitRemoteBranches: "远程分支", gitCurrentBranch: "当前分支",
+    gitGraph: "提交图", gitCommitMessage: "提交信息", gitAuthor: "作者", gitDate: "日期", gitHash: "提交号",
+    gitCommitDetails: "提交详情", gitSelectCommit: "选择提交以查看变更", gitChangedFiles: "变更文件",
+    gitWorkingTree: "工作区", gitDiffLayout: "差异布局", gitSplit: "左右对比", gitUnified: "统一视图",
+    gitBefore: "修改前", gitAfter: "修改后", gitRawFallback: "无法解析此差异，以下为完整原始内容。",
     gitReadOnly: "只读 Git · 不执行提交或推送",
     gitOffline: "设备离线，恢复连接后可查看 Git。",
     gitNotRepository: "当前项目没有可浏览的 Git 仓库。",
@@ -383,6 +388,11 @@ const dictionary = {
   "en-US": {
     projectTools: "Project tools",
     gitChanges: "Changes", gitHistory: "History", gitRepository: "Repository",
+    gitBranches: "Branches", gitLocalBranches: "Local branches", gitRemoteBranches: "Remote branches", gitCurrentBranch: "Current branch",
+    gitGraph: "Commit graph", gitCommitMessage: "Commit message", gitAuthor: "Author", gitDate: "Date", gitHash: "Hash",
+    gitCommitDetails: "Commit details", gitSelectCommit: "Select a commit to view changes", gitChangedFiles: "Changed files",
+    gitWorkingTree: "Working tree", gitDiffLayout: "Diff layout", gitSplit: "Side by side", gitUnified: "Unified",
+    gitBefore: "Before", gitAfter: "After", gitRawFallback: "This diff could not be parsed. The complete original patch is shown below.",
     gitReadOnly: "Read-only Git · No commits or pushes",
     gitOffline: "Device offline. Reconnect to browse Git.",
     gitNotRepository: "No browsable Git repository in this project.",

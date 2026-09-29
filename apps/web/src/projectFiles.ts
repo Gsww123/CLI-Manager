@@ -52,7 +52,7 @@ export async function readProjectOperation(
   deviceId: string, context: ProjectContext, kind: string, parameters: JsonObject,
   signal: AbortSignal, client = webClient, timeoutMs = 30_000,
 ): Promise<JsonValue> {
-  if (!READ_KINDS.has(kind) && !["git.repositories", "git.status", "git.diff", "git.history", "git.commit_detail", "git.commit_diff"].includes(kind)) {
+  if (!READ_KINDS.has(kind) && !["git.repositories", "git.branches", "git.status", "git.diff", "git.history", "git.commit_detail", "git.commit_diff"].includes(kind)) {
     throw new Error("unsupported_operation_kind");
   }
   if (!context.projectId) throw new Error("project_not_found");

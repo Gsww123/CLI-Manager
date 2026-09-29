@@ -28,6 +28,10 @@ test("read validation rejects path traversal, invalid OIDs, search injection and
   assert.throws(() => validateWebGitRead("git.diff", { path: "x", status: "M", contextLines: 9 }));
   assert.throws(() => validateWebGitRead("git.push", {}));
   validateWebGitRead("git.history", { repository: "", search: "作者", cursor: oid });
+  for (const reference of ["", "-x", "main\n", "a b", "x".repeat(257), 123]) {
+    assert.throws(() => validateWebGitRead("git.history", { reference }));
+  }
+  validateWebGitRead("git.history", { reference: "refs/heads/feature/中文" });
   validateWebGitRead("git.commit_diff", { commitId: oid, path: "src/新文件.ts", oldPath: "src/旧文件.ts" });
 });
 
@@ -53,6 +57,10 @@ test("nested repositories use host-discovered paths, canonical validation, and r
     projectPath: "C:/registered/nested", cursor: oid, search: "author", reference: null, filters: null,
   } });
   assert.equal(calls.filter((item) => item.command === "git_list_repositories").length, 1);
+  await executeWebGitRead("git.branches", { repository: "nested" }, "C:/registered");
+  assert.deepEqual(calls.at(-1), { command: "git_list_branches", args: { projectPath: "C:/registered/nested" } });
+  await executeWebGitRead("git.history", { repository: "nested", reference: "refs/remotes/origin/main" }, "C:/registered");
+  assert.equal(calls.at(-1).args.reference, "refs/remotes/origin/main");
   await assert.rejects(executeWebGitRead("git.history", { repository: "invented" }, "C:/registered"), { code: "git_repository_missing" });
   globalThis.webGitTest.validate = async () => { throw "canonical path escapes root C:/secret"; };
   const before = calls.length;
@@ -82,7 +90,8 @@ test("errors map to safe nonrepository, binary and size codes", async () => {
 });
 
 test("Web parsers preserve empty pages, rename paths and binary metadata; malformed data is not clean status", () => {
-  const commit = { id: oid, shortId: "aaaaaaa", title: "hello", authorName: "author", authoredAt: 123 };
+  const commit = { id: oid, shortId: "aaaaaaa", title: "hello", authorName: "author", authoredAt: 123,
+    parents: ["b".repeat(40)], refs: ["main", "origin/main"], authorEmail: "test@example.org" };
   assert.deepEqual(git.parseGitPage({ commits: [], nextCursor: null }), { commits: [], nextCursor: null });
   assert.deepEqual(git.parseGitPage({ commits: [commit], nextCursor: oid }).commits, [commit]);
   const detail = git.parseGitDetail({ commit, files: [{ path: "new", oldPath: "old", status: "R", added: 2, deleted: 1, binary: true }] });
@@ -91,6 +100,9 @@ test("Web parsers preserve empty pages, rename paths and binary metadata; malfor
   assert.equal(git.parseGitDiff({ content: "<script>literal</script>" }), "<script>literal</script>");
   assert.throws(() => git.parseGitStatus({ changes: [] }), /invalid_git_result/);
   assert.throws(() => git.parseGitPage({ commits: "bad" }), /invalid_git_result/);
+  assert.deepEqual(git.parseGitBranches([{ name: "origin/main", branchType: "remote", current: false }]),
+    [{ name: "origin/main", branchType: "remote", current: false }]);
+  assert.throws(() => git.parseGitBranches([{ name: "main", branchType: "invalid" }]), /invalid_git_result/);
 });
 
 test("real desktop and mobile entries mount read-only panel; translations and cancellation remain connected", async () => {
@@ -100,16 +112,27 @@ test("real desktop and mobile entries mount read-only panel; translations and ca
   assert.match(inspector, /tab === "files" \? <ProjectFilesPanel/);
   assert.match(inspector, /<ProjectGitPanel/);
   const panel = read("../apps/web/src/ProjectGitPanel.tsx");
-  assert.match(panel, /return \(\) => controller.abort\(\)/);
-  assert.match(panel, /!controller.signal.aborted/);
+  const reader = read("../apps/web/src/projectGitRead.ts");
+  const workspace = read("../apps/web/src/GitHistoryWorkspace.tsx");
+  const dialogs = read("../apps/web/src/GitDialogs.tsx");
+  assert.match(reader, /return \(\) => controller.abort\(\)/);
+  assert.match(reader, /!controller.signal.aborted/);
   assert.match(panel, /key=\{repository\}/);
-  assert.match(panel, /key=\{search\}/);
-  assert.match(panel, /hour12: false/);
-  assert.doesNotMatch(panel, /git\.(push|commit"|fetch|discard|stage)|dangerouslySetInnerHTML/);
+  assert.match(workspace, /JSON.stringify\(\[reference, search, revision\]\)/);
+  assert.match(workspace, /hour12: false/);
+  assert.match(workspace, /<table className="git-log-table"/);
+  assert.match(workspace, /<GitCommitGraph/);
+  assert.match(dialogs, /<GitSnapshotDiff/);
+  assert.match(dialogs, /dialog\?\.showModal\(\)/);
+  assert.match(dialogs, /onKeyDown=\{\(event\) => event.stopPropagation\(\)\}/);
+  const ui = panel + workspace + dialogs;
+  assert.doesNotMatch(ui, /git\.(push|commit"|fetch|discard|stage)|dangerouslySetInnerHTML/);
   const { translate } = await import(moduleUrl(read("../apps/web/src/i18n.ts")));
-  for (const key of [...panel.matchAll(/t\("([^"]+)"\)/g)].map((match) => match[1])) {
+  for (const key of [...ui.matchAll(/\bt\("([^"]+)"\)/g)].map((match) => match[1])) {
     assert.equal(typeof translate("zh-CN", key), "string", key);
     assert.equal(typeof translate("en-US", key), "string", key);
+    assert.notEqual(translate("zh-CN", key), key);
+    assert.notEqual(translate("en-US", key), key);
   }
 });
 
@@ -119,7 +142,7 @@ test("read handler is registered in both validation and execution; server allows
   assert.match(bridge, /validateWebGitRead\(operation.kind, payload\)/);
   assert.match(bridge, /boundedResult\(await executeWebGitRead\(operation.kind, payload, rootPath\)/);
   const server = read("../apps/server/src/api.rs").split("const CONFIRMED_OPERATION_KINDS")[0];
-  for (const kind of ["git.repositories", "git.history", "git.commit_detail", "git.commit_diff"]) {
+  for (const kind of ["git.repositories", "git.branches", "git.history", "git.commit_detail", "git.commit_diff"]) {
     assert.ok(server.includes(`"${kind}"`), kind);
   }
 });
