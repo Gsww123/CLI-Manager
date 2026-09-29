@@ -18,7 +18,7 @@ const filesUrl = moduleUrl(
     .replace('"./webClient"', JSON.stringify(clientUrl))
     .replace('"./fileOperationEvents"', JSON.stringify(eventsUrl)),
 );
-const { readProjectFiles, parseFileEntries, parseFilePreview } = await import(filesUrl);
+const { readProjectFiles, readProjectOperation, parseFileEntries, parseFilePreview } = await import(filesUrl);
 const { publishFileOperation } = await import(eventsUrl);
 const { createDirectoryCache, directoryScope, projectDirectoryCache } = await import(cacheUrl);
 const { createProjectDirectorySession } = await import(moduleUrl(read("../apps/web/src/projectDirectorySession.ts")
@@ -134,7 +134,8 @@ test("all sidebar combinations reserve terminal space including device details",
 test("Web columns keep terminals mounted and remove geometry-driven overlays", () => {
   const views = read("../apps/web/src/views.tsx");
   assert.ok(!views.includes("ManagementPanel"));
-  assert.match(views, /ProjectFilesPanel/);
+  assert.match(views, /ProjectInspector/);
+  assert.match(read("../apps/web/src/ProjectInspector.tsx"), /ProjectFilesPanel/);
   assert.match(views, /setFilesOpen\(!fileLayout\.desktop/);
   assert.match(views, /setFilesOpen\(false\); setFileContext\(undefined\); \}, \[selectedDevice\?\.id\]\)/);
   assert.match(views, /onSubmitManagement/); // context menus still use the transport
@@ -256,6 +257,84 @@ function directoryHarness(t, options = {}) {
   t.after(() => { unsubscribe(); session.stop(); });
   return { session, flights, cache, reader };
 }
+
+test("default cache keeps stale directories for ten minutes, but fresh only for thirty seconds", () => {
+  let now = 0;
+  const cache = createDirectoryCache({ now: () => now });
+  cache.put("scope", "dir", [entry("child")], cache.version);
+  now = 29_999;
+  assert.equal(cache.get("scope", "dir").fresh, true);
+  now = 30_000;
+  assert.equal(cache.get("scope", "dir").fresh, false);
+  now = 599_999;
+  assert.deepEqual(cache.get("scope", "dir").entries, [entry("child")]);
+  now = 600_000;
+  assert.equal(cache.get("scope", "dir"), undefined);
+});
+
+test("stale cache revalidation never shows spinner and failed refresh preserves content", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let now = 0;
+  const cache = createDirectoryCache({ now: () => now });
+  cache.put(directoryScope("d", context), "dir", [entry("old")], cache.version);
+  now = 45_000;
+  const { session, flights } = directoryHarness(t, { cache });
+  session.load("dir");
+  t.mock.timers.tick(500);
+  assert.deepEqual(session.getSnapshot().directories.get("dir"), [entry("old")]);
+  assert.equal(session.getSnapshot().loading.size, 0);
+  flights[0].reject(new Error("offline"));
+  await flush();
+  assert.deepEqual(session.getSnapshot().directories.get("dir"), [entry("old")]);
+  assert.equal(session.getSnapshot().errors.has("dir"), true);
+});
+
+test("intent prefetch is debounced, idle only, bounded, and canceled when leaving", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { session, flights } = directoryHarness(t);
+  session.prefetch("ignored"); session.cancelPrefetch(); t.mock.timers.tick(200);
+  assert.equal(flights.length, 0);
+  session.load("root"); session.prefetch("busy"); t.mock.timers.tick(200);
+  assert.equal(flights.length, 1);
+  flights[0].resolve([]); await flush();
+  for (let i = 0; i < 6; i++) {
+    session.prefetch(`dir${i}`); t.mock.timers.tick(180);
+    assert.equal(flights.at(-1).path, `dir${i}`);
+    session.load(`dir${i}`); // User click reuses the inflight request.
+    flights.at(-1).resolve([entry(`dir${i}/child`)]); await flush();
+  }
+  session.prefetch("over-limit"); t.mock.timers.tick(200);
+  assert.equal(flights.length, 7);
+  assert.ok(flights.every((flight) => !flight.path.endsWith("child")), "no recursive prefetch");
+});
+
+test("Git reader shares completion channel, freezes context and refuses write operations", async () => {
+  const client = { async createOperation(input) {
+    assert.deepEqual(input.payload, { repository: "nested", projectId: "p", worktreeId: "w" });
+    publishFileOperation({ ...input, status: "succeeded", result: { commits: [], nextCursor: null } });
+    return { operation: { id: "read", status: "running" } };
+  }, operation() { assert.fail("completion event avoids polling"); } };
+  const result = await readProjectOperation("d", context, "git.history",
+    { repository: "nested", projectId: "evil", worktreeId: "evil", cwd: "C:/outside", rootPath: "C:/outside" },
+    new AbortController().signal, client);
+  assert.deepEqual(result, { commits: [], nextCursor: null });
+  await assert.rejects(readProjectOperation("d", context, "git.push", {}, new AbortController().signal, client), /unsupported/);
+});
+
+test("prefetch stays silent but a slow promoted click gets foreground feedback", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { session, flights } = directoryHarness(t);
+  session.prefetch("folder");
+  t.mock.timers.tick(180);
+  t.mock.timers.tick(500);
+  assert.equal(session.getSnapshot().loading.size, 0);
+  session.load("folder");
+  t.mock.timers.tick(150);
+  assert.equal(session.getSnapshot().loading.has("folder"), true);
+  assert.equal(flights.length, 1);
+  flights[0].resolve([]); await flush();
+  assert.equal(session.getSnapshot().loading.size, 0);
+});
 
 test("independent directory requests deduplicate and only run two at once", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });

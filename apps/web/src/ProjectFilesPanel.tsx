@@ -109,6 +109,9 @@ function FileBrowser({ device, context, t, onClose }: Required<Pick<Props, "devi
       const children = directories.get(entry.path);
       return <li key={entry.path}>
         <button type="button" data-selected={selectedPath === entry.path} aria-busy={folder && pending.has(entry.path)}
+          onPointerEnter={() => { if (folder) directorySession.prefetch(entry.path); }}
+          onFocus={() => { if (folder) directorySession.prefetch(entry.path); }}
+          onPointerLeave={directorySession.cancelPrefetch} onBlur={directorySession.cancelPrefetch}
           title={entry.path} aria-expanded={folder ? open : undefined} onClick={() => select(entry)}>
           {folder && loading.has(entry.path) ? <LoaderCircle size={14} className="project-files-spinner" /> :
             folder ? open ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : <span className="file-indent" />}

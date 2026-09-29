@@ -9,7 +9,7 @@ type CachedDirectory = { scope: string; entries: FileEntry[]; savedAt: number; b
 type Invalidation = { scope?: string; deviceId?: string; reload: boolean; error?: Error };
 
 export function createDirectoryCache({
-  now = Date.now, freshMs = 30_000, maxAgeMs = 300_000, maxDirectories = 96, maxBytes = 4 * 1024 * 1024,
+  now = Date.now, freshMs = 30_000, maxAgeMs = 600_000, maxDirectories = 96, maxBytes = 4 * 1024 * 1024,
 } = {}) {
   const records = new Map<string, CachedDirectory>();
   const listeners = new Set<(event: Invalidation) => void>();

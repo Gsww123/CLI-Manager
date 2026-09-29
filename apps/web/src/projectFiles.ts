@@ -43,14 +43,27 @@ export async function readProjectFiles(
   signal: AbortSignal, client = webClient, timeoutMs = 30_000,
 ): Promise<JsonValue> {
   if (!READ_KINDS.has(kind)) throw new Error("unsupported_operation_kind");
+  return readProjectOperation(deviceId, context, kind,
+    kind === "file.search" ? { query: value } : { path: value }, signal, client, timeoutMs);
+}
+
+// 文件与只读 Git 共用事件优先/轮询恢复链路；身份覆盖调用方参数，禁止传入 cwd。
+export async function readProjectOperation(
+  deviceId: string, context: ProjectContext, kind: string, parameters: JsonObject,
+  signal: AbortSignal, client = webClient, timeoutMs = 30_000,
+): Promise<JsonValue> {
+  if (!READ_KINDS.has(kind) && !["git.repositories", "git.status", "git.diff", "git.history", "git.commit_detail", "git.commit_diff"].includes(kind)) {
+    throw new Error("unsupported_operation_kind");
+  }
   if (!context.projectId) throw new Error("project_not_found");
   const finished = new AbortController();
   const bounded = AbortSignal.any([signal, finished.signal, AbortSignal.timeout(timeoutMs)]);
   bounded.throwIfAborted();
-  const payload: JsonObject = { projectId: context.projectId };
+  const payload: JsonObject = { ...parameters, projectId: context.projectId };
+  delete payload.cwd;
+  delete payload.rootPath;
+  delete payload.worktreeId;
   if (context.worktreeId) payload.worktreeId = context.worktreeId;
-  if (kind === "file.search") payload.query = value;
-  else payload.path = value;
   const idempotencyKey = createRequestId();
   let unsubscribe = () => {};
   let removeAbort = () => {};

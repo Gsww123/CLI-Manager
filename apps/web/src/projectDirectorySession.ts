@@ -8,7 +8,7 @@ type Snapshot = {
   loading: ReadonlySet<string>;
   errors: ReadonlyMap<string, unknown>;
 };
-type Job = { path: string; controller: AbortController; timer?: ReturnType<typeof setTimeout> };
+type Job = { path: string; background: boolean; controller: AbortController; timer?: ReturnType<typeof setTimeout> };
 
 // A panel owns its request lifetime; completed directories survive panel unmount in the cache.
 export function createProjectDirectorySession(
@@ -26,6 +26,8 @@ export function createProjectDirectorySession(
   const jobs = new Map<string, Job>();
   let queue: Job[] = [];
   let active = 0;
+  let intentTimer: ReturnType<typeof setTimeout> | undefined;
+  const prefetched = new Set<string>();
 
   const publish = (change: Partial<Snapshot>) => {
     snapshot = { ...snapshot, ...change };
@@ -68,8 +70,22 @@ export function createProjectDirectorySession(
       pump();
     }
   };
-  const load = (path: string) => {
-    if (jobs.has(path)) return;
+  const load = (path: string, background = false) => {
+    const existing = jobs.get(path);
+    if (existing) {
+      // 点击已预取的目录时提升为前台请求，保留同一网络操作。
+      if (!background && existing.background) {
+        existing.background = false;
+        // 预取的加载计时器可能已结束；用户主动打开后仍需在慢请求时得到反馈。
+        clearTimeout(existing.timer);
+        existing.timer = setTimeout(() => {
+          if (jobs.get(path) === existing && !snapshot.directories.has(path)) {
+            publish({ loading: new Set([...snapshot.loading, path]) });
+          }
+        }, 150);
+      }
+      return;
+    }
     const cached = cache.get(scope, path);
     const errors = new Map(snapshot.errors);
     errors.delete(path);
@@ -77,11 +93,11 @@ export function createProjectDirectorySession(
     if (cached) directories.set(path, cached.entries);
     publish({ directories, errors });
     if (cached?.fresh) return;
-    const job: Job = { path, controller: new AbortController() };
+    const job: Job = { path, background, controller: new AbortController() };
     jobs.set(path, job);
     publish({ pending: new Set([...snapshot.pending, path]) });
     job.timer = setTimeout(() => {
-      if (!job.controller.signal.aborted && jobs.get(path) === job) {
+      if (!job.background && !job.controller.signal.aborted && jobs.get(path) === job && !snapshot.directories.has(path)) {
         publish({ loading: new Set([...snapshot.loading, path]) });
       }
     }, 150);
@@ -89,6 +105,7 @@ export function createProjectDirectorySession(
     pump();
   };
   const stop = () => {
+    clearTimeout(intentTimer);
     for (const job of jobs.values()) {
       clearTimeout(job.timer);
       job.controller.abort();
@@ -115,6 +132,17 @@ export function createProjectDirectorySession(
       };
     },
     load,
+    // 悬停/聚焦才预取；仅空闲时执行，每个面板最多六个目录，不递归。
+    prefetch(path: string) {
+      clearTimeout(intentTimer);
+      if (prefetched.size >= 6 || prefetched.has(path) || cache.get(scope, path)?.fresh) return;
+      intentTimer = setTimeout(() => {
+        if (active || queue.length || jobs.has(path)) return;
+        prefetched.add(path);
+        load(path, true);
+      }, 180);
+    },
+    cancelPrefetch() { clearTimeout(intentTimer); },
     stop,
     refresh() {
       stop();
