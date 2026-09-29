@@ -10,7 +10,7 @@
 ## Checks
 
 - Web and desktop TypeScript checks passed.
-- Node directory/read-only Git/Diff regressions passed; final count recorded below after last pass.
+- Node directory/read-only Git/Diff regressions: 39 passed (`webProjectFiles`, `webGitRead`, `gitDiffLargePerformance`).
 - Server Cargo test: 55 unit + 5 integration passed (including existing reconnect/authorization and new read kinds).
 - Strict architecture: zero >2000-line files / zero violations.
 - First test pass found old static `ProjectFilesPanel` mount assertion after introducing inspector; updated assertion to verify both real mount points and File child. Initial Web typecheck found untyped factory lambda; annotated explicitly and reran successfully.
@@ -26,6 +26,12 @@
 
 ## Release
 
-- User approved commit before NSIS packaging, version 1.4.1. Build/package path and hash pending.
+- User approved commit before NSIS packaging, version 1.4.1. Implementation commit: `8505c78b`.
+- `npm run tauri:build:local -- --bundles nsis --ci`: succeeded; desktop build 2m32s, Web build 10.63s, Rust release 2m23s, then NSIS compression. Only normal chunk-size/macOS-identifier/linker-output warnings; no MSI generated.
+- Package: `src-tauri/target/local/release/bundle/nsis/CLI-Manager_1.4.1_x64-setup.exe`, 29,945,486 bytes, 2026-09-29 10:11:50 +08.
+- SHA256: `8207647C8D42F1668A674E2950B4B65CF44BE662143C5AB82F845ACB255B059C`.
+- NSIS script verified new `index-BIclJj0D.js`, `index-BorKK3Tw.css`, main executable and Web daemon resource paths; `apps/web/dist/index.html` references those same assets.
+- Prior installer retained as `CLI-Manager_1.4.1_x64-setup-before-web-git-20260929.exe`, SHA256 `D07B6148055312F03B3286CD23E1FEAFFE9B9658F5245855DF324F7E4283CFB8`.
+- Post-implementation index refresh confirmed real call edges for ProjectInspector and executeWebGitRead. Memory staged change detection returned an empty set despite staged changes; treated as unreliable and used explicit Git staged diff (23 paths) plus tests/source review as authority.
 - Diff deliberately renders full bounded read-only snapshot text; desktop parsed/editable viewer is not loaded into standalone Web. No promise of zero latency on uncached first reads.
 - Existing installer retained as rollback; no schema migration. If running the old host/Web service, restart after installing to load new operation handlers.
