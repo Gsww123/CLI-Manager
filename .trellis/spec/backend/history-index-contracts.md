@@ -551,12 +551,16 @@ invalidate_history_caches(); // only after commit
 - SQLite table: `history_generated_titles(session_key PRIMARY KEY, source identity, generated_title, generation_state, generation_revision, trigger_kind, source fingerprint, provider composite identity, failure_code, suppression state, timestamps)`.
 - Tauri commands: `history_title_list_providers`, `history_title_generate`, `history_title_clear`, and `history_title_cancel`.
 - Generate requests contain session/source identity, trigger, expected full candidate fingerprint, bounded candidate input, bounded-input fingerprint, and non-secret provider/model identifiers. They never contain API keys, OAuth tokens, base URLs, or raw provider documents.
+- Readiness cards carry the provider identity, model, raw `apiFormat`, and the effective `protocol` (`anthropic` / `chat` / `responses`) that the request will use, so clients never re-derive protocol aliases.
 
 ### 3. Contracts
 
 - Migration v30 is additive and authoritative. Frontend `CREATE TABLE IF NOT EXISTS` is only a compatibility repair; catalog rebuild/reset does not touch this table.
 - Provider resolution is Rust-only through the Native Provider repository/runtime and the existing network client policy. Readiness returns redacted cards and stable reason codes only.
 - Supported request protocols are Anthropic Messages, OpenAI Chat Completions, and OpenAI Responses. Requests are non-streaming, text-only, have no tools/reasoning, bounded input/output/body/timeout, and do not log prompt, raw output, key, or endpoint secrets.
+- Protocol selection and its default (`anthropic` for Claude, `responses` for Codex/Grok) must be resolved once in the backend and reused by both the request path and the readiness listing.
+- Anthropic-protocol authentication follows the same rule as the routing proxy and model probe: `x-api-key` only for `claude` + Anthropic format + `ANTHROPIC_API_KEY` key field, `Authorization: Bearer` for `ANTHROPIC_AUTH_TOKEN` and for every OpenAI-compatible protocol.
+- Only a finish reason that explicitly means "no usable answer" (tool call, refusal, content filter, provider error/failure) rejects a response. Truncation (`max_tokens` / `length` / `incomplete`) and unrecognized relay values stay usable and are trimmed by the title sanitizer; the observed finish reason is logged.
 - Auxiliary text requests share one backend protocol helper with command suggestions. For OpenAI Responses compatibility gateways, `input` is a plain string (not a nested `input_text` message array); endpoint joining must not duplicate `/v1` or a complete endpoint.
 - HTTP/request failures keep stable backend categories (timeout, rate limit, HTTP status, response-format/empty output) so the frontend can localize safe diagnostics without exposing response bodies or provider configuration.
 - Reservation increments a monotonic revision and writes `pending`. Commit requires the same revision, source identity/fingerprint, pending state, current provider selection, and (for automatic work) an empty alias and enabled setting. Zero affected rows is stale/cancelled and never overwrites a newer result.
@@ -569,7 +573,9 @@ invalidate_history_caches(); // only after commit
 | Condition | Required behavior |
 |---|---|
 | Missing/disabled/keyless/invalid/unsupported provider | Return a stable redacted failure code and persist failure state; never expose credentials |
-| 429, timeout, non-2xx, oversized/invalid response, tool call, abnormal finish, or empty title | Persist a safe failure code and retain any previous generated title |
+| 429, timeout, non-2xx, oversized/invalid response, tool call, empty title, or an explicitly blocked finish reason | Persist a safe failure code and retain any previous generated title |
+| Output hits the token ceiling or the relay reports an unrecognized finish reason | Keep the usable title after sanitizing; never fail only because the reason is unexpected |
+| Claude provider runs in Anthropic format with `ANTHROPIC_AUTH_TOKEN` | Send `Authorization: Bearer` (never a hardcoded `x-api-key`), matching the routing proxy and model probe |
 | Alias added, clear, delete, provider switch, or switch-off while request is in flight | Revision/CAS or commit guard rejects the late result |
 | Candidate exceeds 4096 UTF-8 bytes | Hash the normalized complete text, send only a Unicode-safe bounded prefix, and validate the bounded-input fingerprint |
 | Catalog rebuild or WebDAV sync | Generated-title rows remain local and unchanged |
@@ -577,5 +583,6 @@ invalidate_history_caches(); // only after commit
 ### 5. Tests Required
 
 - Migration registry uniqueness/order and table/index presence.
-- Sanitizer/protocol tests for controls, bidi/invisible characters, CJK/emoji, tools, abnormal finish, malformed/empty response, and bounded output.
+- Sanitizer/protocol tests for controls, bidi/invisible characters, CJK/emoji, tools, malformed/empty response, bounded output, and finish-reason classification (blocked vs tolerated per protocol).
+- Auth-scheme tests covering both Claude key fields and the OpenAI-compatible protocols.
 - Targeted Rust tests plus `cargo check`; verify no secret/prompt/raw response reaches frontend state or logs.

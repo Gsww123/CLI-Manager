@@ -1,5 +1,13 @@
 # Changelog
 
+## [V1.4.2] - 2026-09-30
+
+### 历史会话智能命名
+
+- 修复 Anthropic 协议供应商生成标题失败：结束原因不再按白名单校验，截断（`max_tokens`/`length`/`incomplete`）及中继返回的未知结束原因不再丢弃可用标题，仅工具调用、拒答、内容过滤与提供方失败判定为不可用；输出上限由 64 提升到 256，降低中继模型回答被截断的概率。
+- Anthropic 协议请求的认证头改为按供应商密钥字段选择：`ANTHROPIC_API_KEY` 使用 `x-api-key`，`ANTHROPIC_AUTH_TOKEN` 使用 `Authorization: Bearer`，与路由代理和模型探测保持一致。
+- 设置-会话历史 的标题 Provider 下拉按 Claude / Codex / Grok Build 分组展示，选项文案改为「供应商 · 模型 · 协议」；就绪列表新增实际请求协议，由后端统一解析协议别名与默认值。
+
 ## [V1.4.1] - 2026-09-23
 
 ### Web Git 只读浏览与目录缓存（2026-09-29）

@@ -945,6 +945,8 @@ export interface HistoryTitleProviderOption {
   providerName: string;
   modelId: string | null;
   apiFormat: string | null;
+  /** 实际请求协议，由后端按 apiFormat 归类：anthropic / chat / responses。 */
+  protocol: "anthropic" | "chat" | "responses" | null;
   ready: boolean;
   reasonCode: string | null;
 }
