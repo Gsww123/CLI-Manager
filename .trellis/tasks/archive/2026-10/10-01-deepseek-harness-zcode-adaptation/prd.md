@@ -22,7 +22,7 @@
 - [x] 实际启动本地官方 WebUI，验证端口、项目目录、HTTP页面和停止。
 - [x] 前端类型/构建、相关 Rust checks、strict architecture通过。
 - [x] UI 中英文检查完成。
-- [ ] fork / push / draft PR 已验证且附加到聊天。
+- [x] fork / push / draft PR 已验证且附加到聊天。
 
 ## Authorization
 

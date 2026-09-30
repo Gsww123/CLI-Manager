@@ -26,7 +26,7 @@ Results below were reported by the parent agent after execution. No desktop UI o
 | Live daemon attach/dead daemon restart | Partial | Automated process/session coverage passed; no manual desktop result supplied. See replay limitation below. |
 | WSL and SSH/manual forwarding | Pending | No runtime environment result supplied; guest source rejection and SSH open restriction are code boundaries only. |
 | Final diff whitespace and expected-symbol scope review | Passed | Manual contract/reference/diff review and `git diff --check`; no unexpected files. GitNexus MCP and CLI were unavailable, so automatic impact/detect_changes not claimed. |
-| Fork push and upstream draft PR | Pending | Record actual commit and attached PR only after success. |
+| Fork push and upstream draft PR | Passed | Work commit `e62b6227a0d4867cf4abaf88e9b01204221ae533` pushed to `jackie-cqz/CLI-Manager`; upstream Draft PR [#273](https://github.com/dark-hxx/CLI-Manager/pull/273) verified against `master` and attached to this chat. |
 
 ## Endpoint ordering and recovery boundary
 
