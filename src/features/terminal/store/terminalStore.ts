@@ -1,3 +1,4 @@
+import { isDeepSeekWebCommand } from "../../../shared/lib/deepseekHarness";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
@@ -1573,14 +1574,14 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
           newIdMap[ps.id] = newSessionId;
 
           const shellKey = normalizeShellKey(resolvedShell) ?? null;
-          // 恢复按会话类型分流：CLI 会话（codex/claude）走原生 resume，普通 shell 会话静态贴回 scrollback。
+          // 支持的 CLI 走原生 resume；DSH 重启 Web 服务；普通 shell 会话静态贴回 scrollback。
           let launchStartupCmd: string | undefined;
           let initialTerminalOutput: string | undefined;
           let deferStartupUntilInitialOutput = false;
 
-          if (cliKind) {
-            // CLI 会话：不贴 initialTerminalOutput（TUI 绝对定位重绘会盖掉它，见
-            // research/tui-startup-clear-sequences.md），改用 resume 让 CLI 自己重画上次对话并可继续。
+          if (cliKind || isDeepSeekWebCommand(restoredStartupCmd)) {
+            // CLI resume / DSH 服务重启均不贴旧 scrollback，避免旧 TUI 状态或旧服务地址覆盖新输出。
+            // TUI 重绘说明见 research/tui-startup-clear-sequences.md。
             launchStartupCmd = launch.startupCmd;
           } else {
             // 普通 shell 会话：静态贴回历史滚动内容（shell 不清屏，历史可见），startupCmd 保持首轮行为。

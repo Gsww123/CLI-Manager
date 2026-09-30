@@ -1,6 +1,19 @@
 import type { zh } from "./projects.zh-CN";
 
 export const en: Record<keyof typeof zh, string> = {
+  "configModal.deepseek.argsPlaceholder": "--port 0 --no-open",
+  "configModal.deepseek.shellUnsupported": "Source launch quoting is unavailable for this Shell. Select a supported Shell such as PowerShell, CMD or Bash.",
+  "configModal.deepseek.profileRequired": "This integration uses the official WebUI. Select --profile web.",
+  "configModal.deepseek.help": "Use the official WebUI in your browser. A free port is selected by default; CLI arguments can set --port or --no-open.",
+  "configModal.deepseek.sourceRoot": "Local DeepSeek Harness source directory (optional)",
+  "configModal.deepseek.installed": "Leave blank to use installed dsh",
+  "configModal.deepseek.browse": "Browse",
+  "configModal.deepseek.clear": "Use installed CLI",
+  "configModal.deepseek.envInvalid": "Correct the environment variables to a JSON object first.",
+  "configModal.deepseek.sourceInvalid": "Select a valid official DeepSeek Harness source repository.",
+  "configModal.deepseek.sourceUnbuilt": "The source is not built. Run pnpm run build in that repository first.",
+  "configModal.deepseek.guestHelp": "For WSL / SSH, install dsh in the target environment and clear the local source directory. Configure API keys in that environment.",
+
   "sidebar.projects": "Projects",
   "sidebar.expand": "Expand sidebar",
   "sidebar.collapse": "Collapse sidebar",

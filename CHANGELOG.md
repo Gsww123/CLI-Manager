@@ -1,5 +1,15 @@
 # Changelog
 
+## [TEMP] - 2026-10-01
+
+### DeepSeek Harness 官方 WebUI
+
+- 项目 CLI 预设新增 DeepSeek Harness（`dsh`）及品牌图标，采用官方 Web profile 启动，默认 `--port 0` 为每个服务分配可用端口；保留显式端口、`--no-open` 和 Web profile/patch 参数。项目自定义启动命令仍优先。
+- 项目配置可选择本机已构建的官方源码仓库，通过其 CLI 入口启动；保存和启动时检查官方清单、依赖目录、CLI/Web 构建产物，不自动安装或构建。服务工作目录仍是项目或 Worktree，不切换到源码目录。
+- 终端工具栏增加 WebUI 打开按钮，从真实 readiness 输出读取当前会话地址，支持分块、ANSI 和 daemon 重放；地址仅保留在内存，结束命令或关闭会话后清理。存活 daemon 重连复用服务，原进程丢失时重新启动 Web 服务。
+- WSL/SSH 使用各自环境中的 `dsh` 安装，不使用本机源码路径；SSH 回环地址需要自行配置端口转发，按钮提示限制且不误开本机同端口。
+- 聊天、原生历史、模型和插件/Hook 继续由官方 WebUI 管理；本次不新增 CLI-Manager 原生历史、Token 统计、原生对话 resume、Hook 或供应商适配。ZCode 和社区 DeepSeek TUI 留待后续适配。
+
 ## [V1.4.1] - 2026-09-23
 
 ### Codex 排队提问快捷键修复（2026-09-30）

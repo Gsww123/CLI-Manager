@@ -14,6 +14,8 @@ import {
 import type { Project } from "../../../shared/types/index";
 import { SortableToolbarButton, CpuCatIndicator } from "../components/TerminalToolbarControls";
 
+import { DeepSeekWebButton } from "../components/DeepSeekWebButton";
+
 interface TerminalToolbarContext {
   t: ReturnType<typeof useI18n>["t"];
   fullscreen: boolean;
@@ -280,6 +282,7 @@ export function useTerminalToolbarRenderer({
               </SortableToolbarButton>
             ))}
           </SortableContext>
+          <DeepSeekWebButton />
           <div className="ui-terminal-action-cat-slot">
             <CpuCatIndicator
               enabled={systemResourceMonitoringEnabled && cpuResourceCardVisible}

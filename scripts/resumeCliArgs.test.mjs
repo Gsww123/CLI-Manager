@@ -47,6 +47,9 @@ writeFileSync(
 
 transpile(new URL("../src/features/history/api/resumeCliArgs.ts", import.meta.url), "resumeCliArgs.mjs");
 transpile(new URL("../src/features/providers/api/providerSwitching.ts", import.meta.url), "providerSwitching.mjs");
+transpile(new URL("../src/shared/lib/deepseekHarness.ts", import.meta.url), "deepseekHarness.mjs", {
+  "../platform/shell": "./shell.mjs",
+});
 const projectStartupPath = transpile(
   new URL("../src/features/projects/api/projectStartupCommand.ts", import.meta.url),
   "projectStartupCommand.mjs",
@@ -54,6 +57,7 @@ const projectStartupPath = transpile(
     "../../providers/api/providerSwitching": "./providerSwitching.mjs",
     "../../history/api/resumeCliArgs": "./resumeCliArgs.mjs",
     "../../../shared/platform/shell": "./shell.mjs",
+    "../../../shared/lib/deepseekHarness": "./deepseekHarness.mjs",
   },
 );
 const saveSessionPath = transpile(

@@ -713,6 +713,7 @@ pub fn run() {
             commands::fs::file_move,
             commands::shell::open_windows_terminal,
             commands::shell::open_folder_in_explorer,
+            commands::deepseek::deepseek_web_validate_source,
             commands::history::history_list_sessions,
             commands::history::history_get_session,
             commands::history::history_convert_session,

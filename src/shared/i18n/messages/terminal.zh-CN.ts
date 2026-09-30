@@ -1,4 +1,9 @@
 export const zh = {
+  "terminal.deepseek.open": "打开 DeepSeek Harness WebUI",
+  "terminal.deepseek.waiting": "等待 DeepSeek Harness WebUI 就绪",
+  "terminal.deepseek.sshForward": "SSH WebUI 需先配置本地端口转发，请使用终端输出的远端地址。",
+  "terminal.deepseek.openFailed": "无法打开 DeepSeek Harness WebUI",
+
   "termStats.screenshot": "复制完整统计长图",
   "termStats.screenshotBusy": "正在生成统计长图…",
   "termStats.screenshotCopied": "统计长图已复制到剪贴板",

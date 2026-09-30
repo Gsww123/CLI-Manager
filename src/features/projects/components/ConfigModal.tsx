@@ -42,6 +42,10 @@ import { useSshDirectoryBrowser } from "../../remote/api/useSshDirectoryBrowser"
 import { resolveGroupBoundPath } from "../api/groupPath";
 import { pathExists } from "../../../shared/lib/pathValidation";
 
+import { DeepSeekHarnessFields } from "./DeepSeekHarnessFields";
+import { getDeepSeekSourceRoot, isDeepSeekHarnessTool, buildDeepSeekWebCommand } from "../../../shared/lib/deepseekHarness";
+import { deepSeekLaunchError, validateDeepSeekSource } from "../api/deepseekSource";
+
 interface Props {
   project?: Project;
   cloneFrom?: Project;
@@ -476,6 +480,17 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
       const environmentType: ProjectEnvironmentType = projectType === "ssh"
         ? "ssh"
         : isWslUncPath(path.trim()) ? "wsl" : "local";
+      const deepseekSource = isDeepSeekHarnessTool(trimmedCliTool) ? getDeepSeekSourceRoot(envVarsText) : "";
+      if (isDeepSeekHarnessTool(trimmedCliTool) && !trimmedStartupCmd) {
+        try { buildDeepSeekWebCommand(trimmedCliTool, trimmedCliArgs, deepseekSource, shell, environmentType); }
+        catch (error) { throw deepSeekLaunchError(error); }
+      }
+      if (deepseekSource) {
+        if (environmentType !== "local" || normalizeShellKey(shell) === "wsl") {
+          throw new Error(t("configModal.deepseek.guestHelp"));
+        }
+        await validateDeepSeekSource(deepseekSource);
+      }
       if (isEdit && project) {
         await updateProject(project.id, {
           name: name.trim(),
@@ -769,6 +784,14 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
                 />
               </div>
 
+              {isDeepSeekHarnessTool(cliTool) && (
+                <DeepSeekHarnessFields
+                  envText={envVarsText}
+                  onChange={setEnvVarsText}
+                  native={projectType === "local" && !isWslUncPath(path) && normalizeShellKey(shell) !== "wsl"}
+                />
+              )}
+
               {cliTool.trim() !== "" && (
                 !isClone ? (
                   <CliArgsHistoryField
@@ -776,14 +799,14 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
                     value={cliArgs}
                     onChange={setCliArgs}
                     suggestions={cliArgsHistorySuggestions}
-                    placeholder="--permission-mode bypassPermissions"
+                    placeholder={isDeepSeekHarnessTool(cliTool) ? t("configModal.deepseek.argsPlaceholder") : "--permission-mode bypassPermissions"}
                   />
                 ) : (
                   <Field
                     label={t("configModal.cliArgs")}
                     value={cliArgs}
                     onChange={setCliArgs}
-                    placeholder="--permission-mode bypassPermissions"
+                    placeholder={isDeepSeekHarnessTool(cliTool) ? t("configModal.deepseek.argsPlaceholder") : "--permission-mode bypassPermissions"}
                   />
                 )
               )}

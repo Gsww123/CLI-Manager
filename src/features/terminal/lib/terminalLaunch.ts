@@ -5,7 +5,7 @@ import { createAgentTerminalMetadata, resolveAgentTerminalMetadata } from "../..
 import { logError, logWarn } from "../../../shared/platform/logger";
 import {
   appendResumeCliArgs, isDirectCodexStartupCommand, normalizeDirectCodexStartupCommand,
-  resolveProjectStartupCommand, withClaudeMcpConfigPath, withClaudeSettingsPath,
+  resolveProjectStartupCommand as resolveProjectCommand, withClaudeMcpConfigPath, withClaudeSettingsPath,
   withCodexConfigOverrides, withCodexProfile,
   withCodexLightTuiTheme, withGrokModelOverride,
 } from "../../projects/api/projectStartupCommand";
@@ -38,6 +38,15 @@ import {
   prepareProjectExtensionLaunch,
   releaseProjectExtensionSnapshot as releaseProjectExtensionSnapshotApi,
 } from "../../extensions/api/projectPolicy";
+
+import { DEEPSEEK_WEB_ENV, getDeepSeekSourceRoot, isDeepSeekHarnessTool, isDeepSeekWebCommand, withDeepSeekStopMarker } from "../../../shared/lib/deepseekHarness";
+import { deepSeekLaunchError, validateDeepSeekSource } from "../../projects/api/deepseekSource";
+
+/** Localize project launch validation at the existing public-command boundary. */
+function resolveProjectStartupCommand(...args: Parameters<typeof resolveProjectCommand>) {
+  try { return resolveProjectCommand(...args); }
+  catch (error) { throw deepSeekLaunchError(error); }
+}
 
 export function supportsShellRuntimeInjection(shell?: string | null): boolean {
   const normalized = normalizeShellKey(shell);
@@ -513,8 +522,15 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     || (projectStartupCmd !== undefined
       && options.startupCmd?.trim() === projectStartupCmd.trim());
   const resolvedStartupCmd = usesProjectDefaultStartup && project
-    ? resolveProjectStartupCommand(project, { includeProviderOverrides: false })
+    ? resolveProjectStartupCommand({ ...project, shell: isDeepSeekHarnessTool(project.cli_tool)
+      ? resolvedShell ?? defaultShellForOs(os) : project.shell }, { includeProviderOverrides: false })
     : options.startupCmd?.trim() || undefined;
+  const deepseekSource = project && usesProjectDefaultStartup && isDeepSeekWebCommand(resolvedStartupCmd)
+    ? getDeepSeekSourceRoot(project.env_vars) : "";
+  if (deepseekSource) {
+    if (normalizeShellKey(resolvedShell) === "wsl") throw deepSeekLaunchError(new Error("deepseek_source_native_only"));
+    await validateDeepSeekSource(deepseekSource);
+  }
   const providerSnapshot = await prepareProviderLaunchSnapshot(
     project ?? null,
     resolvedStartupCmd,
@@ -700,6 +716,8 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     releaseProjectExtensionSnapshot(extensionSnapshotId);
     extensionSnapshotId = null;
   }
+  try { startupCmd = withDeepSeekStopMarker(startupCmd, resolvedShell ?? defaultShellForOs(os)); }
+  catch (error) { throw deepSeekLaunchError(error); }
   return {
     shell: resolvedShell,
     environmentType: os === "windows" && normalizeShellKey(resolvedShell) === "wsl" ? "wsl" : "local",
@@ -717,7 +735,15 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     extensionWarnings,
     invokeArgs: {
       cwd: options.cwd ?? null,
-      envVars: buildPtyEnvVars(options.envVars ?? null, resolvedShell),
+      envVars: {
+        ...buildPtyEnvVars(options.envVars ?? null, resolvedShell),
+        ...(isDeepSeekWebCommand(startupCmd) ? {
+          [DEEPSEEK_WEB_ENV]: "1",
+          // Service lifecycle must remain observable when optional shell monitoring is off.
+          ...(supportsShellRuntimeInjection(resolvedShell ?? defaultShellForOs(os))
+            ? { [SHELL_RUNTIME_MONITORING_ENV]: "1" } : {}),
+        } : {}),
+      },
       shell: resolvedShell,
       hookEnvEnabled: await shouldEnableHookEnv(),
       claudeProvider: providerConfigs.claudeProvider,

@@ -1,4 +1,17 @@
 export const zh = {
+  "configModal.deepseek.argsPlaceholder": "--port 0 --no-open",
+  "configModal.deepseek.shellUnsupported": "当前 Shell 的源码启动引用规则未知，请选择 PowerShell、CMD 或 Bash 等受支持 Shell。",
+  "configModal.deepseek.profileRequired": "此集成用于官方 WebUI，请使用 --profile web。",
+  "configModal.deepseek.help": "官方 WebUI 在浏览器中交互。默认使用空闲端口；CLI 参数可指定 --port 或 --no-open。",
+  "configModal.deepseek.sourceRoot": "本地 DeepSeek Harness 源码目录（可选）",
+  "configModal.deepseek.installed": "留空使用已安装的 dsh",
+  "configModal.deepseek.browse": "选择目录",
+  "configModal.deepseek.clear": "使用安装版",
+  "configModal.deepseek.envInvalid": "请先将环境变量修正为 JSON 对象。",
+  "configModal.deepseek.sourceInvalid": "请选择有效的 DeepSeek Harness 官方源码仓库。",
+  "configModal.deepseek.sourceUnbuilt": "源码尚未构建，请先在该仓库运行 pnpm run build。",
+  "configModal.deepseek.guestHelp": "WSL / SSH 请使用目标环境内安装的 dsh，并清空本机源码目录；API Key 等配置应在目标环境设置。",
+
   "sidebar.projects": "项目",
   "sidebar.expand": "展开侧边栏",
   "sidebar.collapse": "折叠侧边栏",

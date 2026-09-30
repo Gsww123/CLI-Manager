@@ -1,6 +1,11 @@
 import type { zh } from "./terminal.zh-CN";
 
 export const en: Record<keyof typeof zh, string> = {
+  "terminal.deepseek.open": "Open DeepSeek Harness WebUI",
+  "terminal.deepseek.waiting": "Waiting for DeepSeek Harness WebUI",
+  "terminal.deepseek.sshForward": "SSH WebUI requires local port forwarding. Use the remote address printed in the terminal.",
+  "terminal.deepseek.openFailed": "Could not open DeepSeek Harness WebUI",
+
   "termStats.screenshot": "Copy full statistics as image",
   "termStats.screenshotBusy": "Creating statistics image…",
   "termStats.screenshotCopied": "Statistics image copied to clipboard",
