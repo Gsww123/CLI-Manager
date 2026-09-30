@@ -2,6 +2,7 @@
 
 ## 2026-09-30 Codex 排队提问快捷键修复
 
+- 安装包：修复提交 `1fbfaf08` 后运行 `npm run tauri:build:local -- --bundles nsis --ci`，退出码 0；桌面及 Web 生产构建、缓存 Rust 编译、NSIS 封装通过。产物 `src-tauri/target/local/release/bundle/nsis/CLI-Manager_1.4.1_x64-setup.exe`，2026-09-30 14:03:37，29,987,198 字节；SHA256 `8A5EC9C773FCE2919DD5FF66DBF1CB1998493BD39BB0789243F494885EEE6FB1`。保留旧包备份，未启动应用或 Web 服务，未推送。
 - 分支：`fix/codex-queued-question-shortcut`，从本地与 origin/master 同步的 `0294a3ba` 创建；沿用 1.4.1，NSIS，提交后打包，不推送。
 - 根因：桌面 xterm 自定义键盘回调无条件将 Shift+Left/Right 改成模拟选区，空输入直接吞键，有输入只发送普通方向键，Codex 无法收到排队提问入口所需的修饰键。
 - 修复落点：`useXTermController` 在现有 Codex 会话/视口识别命中后清理模拟选区并返回 true，由 xterm 原生编码按键；普通 Shell 保留选区逻辑。为避免依赖待回答 Hook 是否及时到达，对 Codex 会话始终保留该原生组合键。
