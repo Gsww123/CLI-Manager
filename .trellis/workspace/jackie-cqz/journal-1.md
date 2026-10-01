@@ -66,7 +66,7 @@ Implemented native dsh-tui launch and exact per-tab recovery; desktop GUI accept
 
 ### Status
 
-[OK] **Completed**
+**Implementation committed; desktop acceptance pending**
 
 ### Next Steps
 
