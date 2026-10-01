@@ -50,6 +50,10 @@ transpile(new URL("../src/features/providers/api/providerSwitching.ts", import.m
 transpile(new URL("../src/shared/lib/deepseekHarness.ts", import.meta.url), "deepseekHarness.mjs", {
   "../platform/shell": "./shell.mjs",
 });
+transpile(new URL("../src/shared/lib/deepseekTui.ts", import.meta.url), "deepseekTui.mjs", {
+  "../platform/shell": "./shell.mjs",
+  "./deepseekHarness": "./deepseekHarness.mjs",
+});
 const projectStartupPath = transpile(
   new URL("../src/features/projects/api/projectStartupCommand.ts", import.meta.url),
   "projectStartupCommand.mjs",
@@ -58,12 +62,14 @@ const projectStartupPath = transpile(
     "../../history/api/resumeCliArgs": "./resumeCliArgs.mjs",
     "../../../shared/platform/shell": "./shell.mjs",
     "../../../shared/lib/deepseekHarness": "./deepseekHarness.mjs",
+    "../../../shared/lib/deepseekTui": "./deepseekTui.mjs",
   },
 );
 const saveSessionPath = transpile(
   new URL("../src/features/projects/api/saveSessionToSidebar.ts", import.meta.url),
   "saveSessionToSidebar.mjs",
   {
+    "../../../shared/lib/deepseekTui": "./deepseekTui.mjs",
     "../../terminal/state": "./terminalStore.mjs",
     "../../history/api/resumeCliArgs": "./resumeCliArgs.mjs",
   },
@@ -420,4 +426,10 @@ test("Grok history source advertises local list delete resume and realtime stats
 
 test("Pi history source advertises local resume support", () => {
   assert.equal(HISTORY_SOURCE_DESCRIPTOR_BY_ID.get("pi")?.capabilities.resume, "supported");
+});
+
+test("saved DSH TUI args replace global selectors with one explicit tab identity before app args", () => {
+  assert.equal(buildResumeCliArgs("deepseek-tui", `--resume ${OLD_ID} -c --continue -- --model deepseek-chat`, NEW_ID), `--resume ${NEW_ID} -- --model deepseek-chat`);
+  assert.equal(buildResumeCliArgs("deepseek-tui", `--resume=${OLD_ID} --model deepseek-chat`, NEW_ID), `--model deepseek-chat --resume ${NEW_ID}`);
+  assert.equal(buildResumeCliArgs("deepseek-tui", "", "bad;calc"), null);
 });

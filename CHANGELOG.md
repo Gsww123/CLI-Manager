@@ -2,13 +2,19 @@
 
 ## [TEMP] - 2026-10-01
 
-### DeepSeek Harness 官方 WebUI
+### DeepSeek Harness TUI
 
-- 项目 CLI 预设新增 DeepSeek Harness（`dsh`）及品牌图标，采用官方 Web profile 启动，默认 `--port 0` 为每个服务分配可用端口；保留显式端口、`--no-open` 和 Web profile/patch 参数。项目自定义启动命令仍优先。
-- 项目配置可选择本机已构建的官方源码仓库，通过其 CLI 入口启动；保存和启动时检查官方清单、依赖目录、CLI/Web 构建产物，不自动安装或构建。服务工作目录仍是项目或 Worktree，不切换到源码目录。
-- 终端工具栏增加 WebUI 打开按钮，从真实 readiness 输出读取当前会话地址，支持分块、ANSI 和 daemon 重放；地址仅保留在内存，结束命令或关闭会话后清理。存活 daemon 重连复用服务，原进程丢失时重新启动 Web 服务。
-- WSL/SSH 使用各自环境中的 `dsh` 安装，不使用本机源码路径；SSH 回环地址需要自行配置端口转发，按钮提示限制且不误开本机同端口。
-- 聊天、原生历史、模型和插件/Hook 继续由官方 WebUI 管理；本次不新增 CLI-Manager 原生历史、Token 统计、原生对话 resume、Hook 或供应商适配。ZCode 和社区 DeepSeek TUI 留待后续适配。
+- 无项目 TUI 会话保存到侧边栏时保留其启动环境，避免自定义 `DSH_HOME`/PATH 丢失；含 Shell 串联、管道或重定向的自定义脚本不进入单命令适配，避免误提取后续命令的恢复参数，引号内字面内容保持原样。
+
+- 安装版默认启动入口简化为 `dsh-tui`，项目配置和保存的启动命令不再展开宿主 profile 参数；会话 bridge 仅在执行时由管理器自动追加，保留旧宿主命令和源码调试入口，并提示缺失的 TUI 启动器。
+- 修复全局 DSH 宿主与 profile 链接本地 TUI 时混用两份 React、终端空白的问题；仅在本机 TUI 启动期间将 React 依赖对齐到实际宿主 bundle，保留用户 Node 参数，退出后恢复原环境，保存的命令仍为简洁的 TUI 入口。
+- 修复 Windows 终端刷新 PATH 时打散 Conda 已激活目录，导致 PowerShell 再次初始化后误删 npm 路径、无法识别 `dsh`/`dsh-tui` 的问题；保留父进程 PATH 顺序并追加新安装目录，项目显式 PATH 仍整值覆盖。
+- 项目常规配置与其他 CLI 统一：源码调试入口移动到环境变量之后的“高级选项”，默认收起；已有源码配置在编辑/克隆时展开并提示当前启动方式，WSL/SSH 无源码配置时不显示该入口。
+- DeepSeek Harness 统一通过官方宿主的 `dsh-tui` profile 加载 dsh-TUI 插件，在 CLI-Manager 内嵌终端交互；移除 Web profile、端口、浏览器按钮与 Web readiness 跟踪。旧 `dsh` 项目的默认启动入口迁移为 TUI，明确的 Web 参数或非 TUI 自定义命令会提示修正。
+- 保留本机已构建的官方宿主源码入口和项目/Worktree cwd；原生项目默认保存与启动时只读检查宿主、依赖和已挂载插件，不要求 Web 构建产物，不自动安装、构建或改写用户 profile。
+- 原生 TUI 通过限定 `dsh-TUI 0.12.x` 的只读 Channel registry bridge 上报真实前台会话 UUID，按 PTY/Tab 独立保存，用于重启恢复和侧边栏继续入口；明确的 `--resume <UUID>` 转为插件环境变量，不使用共享最近会话指针。存活 daemon 继续 attach，身份未知时新建会话。
+- Bridge 仅启动时写入管理器内容寻址缓存；追加命令 overlay，不修改用户插件/profile。WSL/SSH 使用各自的宿主和 profile，不执行本机 profile 校验或注入本机 bridge；明确会话 ID 可以传递，guest 新会话暂不自动捕获身份。WSL 保留已有 WSLENV 并转发 DSH 恢复、home 和 Node 模式变量。
+- DSH 与插件继续管理对话存储、模型和自身插件配置；本次不新增 CLI-Manager 历史/Token 统计、供应商、Hook 完成通知或 MCP/Skills 扩展适配。管理器 bridge 使用版本限定的内部只读接口，并非上游公开稳定契约。
 
 ## [V1.4.1] - 2026-09-23
 

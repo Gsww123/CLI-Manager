@@ -43,7 +43,8 @@ import { resolveGroupBoundPath } from "../api/groupPath";
 import { pathExists } from "../../../shared/lib/pathValidation";
 
 import { DeepSeekHarnessFields } from "./DeepSeekHarnessFields";
-import { getDeepSeekSourceRoot, isDeepSeekHarnessTool, buildDeepSeekWebCommand } from "../../../shared/lib/deepseekHarness";
+import { getDeepSeekSourceRoot } from "../../../shared/lib/deepseekHarness";
+import { isDeepSeekTuiTool, buildDeepSeekTuiCommand } from "../../../shared/lib/deepseekTui";
 import { deepSeekLaunchError, validateDeepSeekSource } from "../api/deepseekSource";
 
 interface Props {
@@ -480,16 +481,16 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
       const environmentType: ProjectEnvironmentType = projectType === "ssh"
         ? "ssh"
         : isWslUncPath(path.trim()) ? "wsl" : "local";
-      const deepseekSource = isDeepSeekHarnessTool(trimmedCliTool) ? getDeepSeekSourceRoot(envVarsText) : "";
-      if (isDeepSeekHarnessTool(trimmedCliTool) && !trimmedStartupCmd) {
-        try { buildDeepSeekWebCommand(trimmedCliTool, trimmedCliArgs, deepseekSource, shell, environmentType); }
+      const deepseekSource = isDeepSeekTuiTool(trimmedCliTool) ? getDeepSeekSourceRoot(envVarsText) : "";
+      if (isDeepSeekTuiTool(trimmedCliTool) && !trimmedStartupCmd) {
+        try { buildDeepSeekTuiCommand(trimmedCliTool, trimmedCliArgs, deepseekSource, shell, environmentType); }
         catch (error) { throw deepSeekLaunchError(error); }
       }
-      if (deepseekSource) {
-        if (environmentType !== "local" || normalizeShellKey(shell) === "wsl") {
-          throw new Error(t("configModal.deepseek.guestHelp"));
-        }
-        await validateDeepSeekSource(deepseekSource);
+      if (isDeepSeekTuiTool(trimmedCliTool) && !trimmedStartupCmd && environmentType === "local" && normalizeShellKey(shell) !== "wsl") {
+        await validateDeepSeekSource(deepseekSource, envVarsText);
+      }
+      if (deepseekSource && (environmentType !== "local" || normalizeShellKey(shell) === "wsl")) {
+        throw new Error(t("configModal.deepseek.guestHelp"));
       }
       if (isEdit && project) {
         await updateProject(project.id, {
@@ -784,14 +785,6 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
                 />
               </div>
 
-              {isDeepSeekHarnessTool(cliTool) && (
-                <DeepSeekHarnessFields
-                  envText={envVarsText}
-                  onChange={setEnvVarsText}
-                  native={projectType === "local" && !isWslUncPath(path) && normalizeShellKey(shell) !== "wsl"}
-                />
-              )}
-
               {cliTool.trim() !== "" && (
                 !isClone ? (
                   <CliArgsHistoryField
@@ -799,14 +792,14 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
                     value={cliArgs}
                     onChange={setCliArgs}
                     suggestions={cliArgsHistorySuggestions}
-                    placeholder={isDeepSeekHarnessTool(cliTool) ? t("configModal.deepseek.argsPlaceholder") : "--permission-mode bypassPermissions"}
+                    placeholder={isDeepSeekTuiTool(cliTool) ? t("configModal.deepseek.argsPlaceholder") : "--permission-mode bypassPermissions"}
                   />
                 ) : (
                   <Field
                     label={t("configModal.cliArgs")}
                     value={cliArgs}
                     onChange={setCliArgs}
-                    placeholder={isDeepSeekHarnessTool(cliTool) ? t("configModal.deepseek.argsPlaceholder") : "--permission-mode bypassPermissions"}
+                    placeholder={isDeepSeekTuiTool(cliTool) ? t("configModal.deepseek.argsPlaceholder") : "--permission-mode bypassPermissions"}
                   />
                 )
               )}
@@ -915,6 +908,14 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
                   className="min-h-20 resize-y font-mono text-xs leading-5"
                 />
               </div>
+
+              {isDeepSeekTuiTool(cliTool) && (
+                <DeepSeekHarnessFields
+                  envText={envVarsText}
+                  onChange={setEnvVarsText}
+                  native={projectType === "local" && !isWslUncPath(path) && normalizeShellKey(shell) !== "wsl"}
+                />
+              )}
 
               <div
                 hidden={!projectWorktreeConfigEnabled || projectType === "ssh"}
@@ -1192,6 +1193,7 @@ function CliToolCombobox({
   const normalizedValue = value.trim().toLowerCase();
   const selectedDescriptor = CLI_TOOL_DESCRIPTORS.find(
     (tool) => tool.command === normalizedValue || tool.id === normalizedValue
+      || (tool.id === "deepseek-harness" && isDeepSeekTuiTool(normalizedValue))
   );
   const resolveOptionIndex = useCallback((nextValue: string) => {
     const normalized = nextValue.trim().toLowerCase();

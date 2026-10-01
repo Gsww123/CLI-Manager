@@ -9,7 +9,8 @@ import {
 import { replaceGrokModelArg, stripKimiResumeCliArgs, stripResumeCliArgs } from "../../history/api/resumeCliArgs";
 import { normalizeShellKey } from "../../../shared/platform/shell";
 
-import { buildDeepSeekWebCommand, getDeepSeekSourceRoot, isDeepSeekHarnessTool } from "../../../shared/lib/deepseekHarness";
+import { buildDeepSeekTuiCommand, isDeepSeekTuiTool } from "../../../shared/lib/deepseekTui";
+import { getDeepSeekSourceRoot } from "../../../shared/lib/deepseekHarness";
 
 const CODEX_PROFILE_ARG = "--profile";
 const CLAUDE_SETTINGS_ARG = "--settings";
@@ -190,8 +191,8 @@ export function resolveProjectStartupCommand(
   // 先拼用户维护的 CLI 附加参数，再做供应商覆盖追加：
   // hasProfileArg / hasClaudeSettingsArg 对整条 command 检测，用户手写过的参数天然去重。
   const cliArgs = project.cli_args.trim();
-  const command = isDeepSeekHarnessTool(cliTool)
-    ? buildDeepSeekWebCommand(cliTool, cliArgs, getDeepSeekSourceRoot(project.env_vars), project.shell, project.environment_type)
+  const command = isDeepSeekTuiTool(cliTool)
+    ? buildDeepSeekTuiCommand(cliTool, cliArgs, getDeepSeekSourceRoot(project.env_vars), project.shell, project.environment_type)
     : cliArgs ? `${cliTool} ${cliArgs}` : cliTool;
   return options.includeProviderOverrides === false
     ? command

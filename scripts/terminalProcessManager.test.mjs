@@ -13,10 +13,10 @@ const tempDir = mkdtempSync(join(tmpdir(), "cli-manager-terminal-process-manager
 process.on("exit", () => rmSync(tempDir, { recursive: true, force: true }));
 
 // Bundle real pure helpers so their relative dependencies resolve in this temporary harness.
-for (const name of ["terminalQueryPolicy", "deepseekHarness"]) {
+for (const name of ["terminalQueryPolicy"]) {
   await build({ entryPoints: [fileURLToPath(new URL(`../src/shared/lib/${name}.ts`, import.meta.url))], bundle: true, platform: "node", format: "esm", outfile: join(tempDir, `${name}.mjs`) });
 }
-await build({ entryPoints: [fileURLToPath(new URL("../src/features/terminal/api/deepseekWebRuntime.ts", import.meta.url))], bundle: true, platform: "node", format: "esm", outfile: join(tempDir, "deepseekWebRuntime.mjs") });
+await build({ entryPoints: [fileURLToPath(new URL("../src/features/terminal/api/deepseekTuiRuntime.ts", import.meta.url))], bundle: true, platform: "node", format: "esm", outfile: join(tempDir, "deepseekTuiRuntime.mjs") });
 
 
 writeFileSync(join(tempDir, "tauriCore.mjs"), `
@@ -72,8 +72,7 @@ const transpiled = ts.transpileModule(source, {
   fileName: "TerminalProcessManager.ts",
 }).outputText
   .replace('from "../../../shared/lib/terminalQueryPolicy"', 'from "./terminalQueryPolicy.mjs"')
-  .replace('from "../../../shared/lib/deepseekHarness"', 'from "./deepseekHarness.mjs"')
-  .replace('from "./deepseekWebRuntime"', 'from "./deepseekWebRuntime.mjs"')
+  .replace('from "./deepseekTuiRuntime"', 'from "./deepseekTuiRuntime.mjs"')
   .replace('from "@tauri-apps/api/core"', 'from "./tauriCore.mjs"')
   .replace('from "../../../shared/platform/resourceDiagnosticsLog"', 'from "./resourceDiagnosticsLog.mjs"')
   .replace('from "../capabilities/TerminalCapabilityStore"', 'from "./capabilities.mjs"')
@@ -84,8 +83,7 @@ writeFileSync(managerPath, transpiled, "utf8");
 const { TerminalProcessManager } = await import(pathToFileURL(managerPath).href);
 const socketStub = await import(pathToFileURL(join(tempDir, "ptyHostSocket.mjs")).href);
 const resourceLogStub = await import(pathToFileURL(join(tempDir, "resourceDiagnosticsLog.mjs")).href);
-const webRuntime = await import(pathToFileURL(join(tempDir, "deepseekWebRuntime.mjs")).href);
-const { DEEPSEEK_STOP_MARKER } = await import(pathToFileURL(join(tempDir, "deepseekHarness.mjs")).href);
+const tuiRuntime = await import(pathToFileURL(join(tempDir, "deepseekTuiRuntime.mjs")).href);
 
 // 构造具有指定序号和 UTF-8 内容的 PTY 输出帧。
 function frame(sequence, text) {
@@ -268,113 +266,41 @@ test("terminal color updates stay behind the process manager boundary", async ()
   }]);
 });
 
-test("DeepSeek readiness observes deduplicated frames without acknowledging before display commit", async () => {
-  socketStub.acknowledgments.length = 0;
+const PTY_ID = "10000000-0000-4000-8000-000000000001";
+const CLI_ID = "20000000-0000-4000-8000-000000000002";
+const marker = (pty = PTY_ID, cli = CLI_ID) => `\x1b]777;cli-manager-dsh-tui;${pty};${cli}\x07`;
+
+test("TUI identity is scoped and deduplicated before display commit without acquiring ACK ownership", async () => {
   const manager = new TerminalProcessManager();
-  const sessionId = "session-deepseek";
-  await manager.create({ sessionId, cwd: null, shell: "pwsh", envVars: { CLI_MANAGER_DSH_WEBUI: "1" } });
-  const deliveries = [];
-  await manager.subscribeOutput(sessionId, delivery => deliveries.push(delivery));
-  const first = { ...frame(1, "dsh web: http://127.0.0.1:"), sessionId };
-  socketStub.emitOutput(sessionId, first);
-  socketStub.emitOutput(sessionId, first);
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  socketStub.emitOutput(sessionId, { ...frame(2, "45123/\n"), sessionId });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), "http://127.0.0.1:45123/");
-  assert.equal(deliveries.length, 2);
-  assert.deepEqual(socketStub.acknowledgments, []);
-  deliveries[0].commit(first.data.byteLength);
-  deliveries[1].commit(7);
-  assert.deepEqual(socketStub.acknowledgments.map(ack => ack.sequence), [1, 2]);
-  socketStub.emitOutput(sessionId, { ...frame(2, "dsh web: http://127.0.0.1:49999/\n"), sessionId });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), "http://127.0.0.1:45123/");
-  await manager.close(sessionId);
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
+  const seen = [];
+  tuiRuntime.setDeepSeekTuiIdentityHandler((pty, cli) => seen.push([pty, cli]));
+  const delivered = [];
+  await manager.subscribeOutput(PTY_ID, (delivery) => delivered.push(delivery));
+  const acknowledgmentsBefore = socketStub.acknowledgments.length;
+  socketStub.emitOutput(PTY_ID, { ...frame(1, marker()), sessionId: PTY_ID });
+  socketStub.emitOutput(PTY_ID, { ...frame(1, marker()), sessionId: PTY_ID });
+  socketStub.emitOutput(PTY_ID, { ...frame(2, marker("30000000-0000-4000-8000-000000000003")), sessionId: PTY_ID });
+  assert.deepEqual(seen, [[PTY_ID, CLI_ID]]);
+  assert.equal(socketStub.acknowledgments.length, acknowledgmentsBefore);
+  delivered.forEach((delivery) => delivery.commit(delivery.frame.data.length));
+  assert.equal(socketStub.acknowledgments.length, acknowledgmentsBefore + 2);
+  await manager.close(PTY_ID);
+  tuiRuntime.setDeepSeekTuiIdentityHandler(null);
 });
 
-test("DeepSeek replay resets stale readiness and preserves reset/replay ACK barriers", async () => {
-  socketStub.acknowledgments.length = 0;
+test("TUI identity reader handles reset and inactive attached replay without old partial bytes", async () => {
   const manager = new TerminalProcessManager();
-  const sessionId = "session-deepseek-replay";
-  webRuntime.trackDeepSeekWebSession(sessionId);
-  const deliveries = [];
-  await manager.subscribeOutput(sessionId, delivery => deliveries.push(delivery));
-  socketStub.emitOutput(sessionId, { ...frame(8, "dsh web: http://localhost:45123/\n"), sessionId });
-  deliveries[0].commit(31);
-  socketStub.acknowledgments.length = 0;
-  socketStub.emitOutput(sessionId, { ...frame(0, ""), sessionId, kind: "reset" });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  socketStub.emitOutput(sessionId, { ...frame(1, "dsh web: http://localhost:45124/\n"), sessionId, replay: true });
-  socketStub.emitOutput(sessionId, { ...frame(1, ""), sessionId, replayBatchEnd: true });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), "http://localhost:45124/");
-  assert.deepEqual(socketStub.acknowledgments, []);
-  deliveries[1].commit(0);
-  deliveries[2].commit(31);
-  deliveries[3].commit(0);
-  assert.deepEqual(socketStub.acknowledgments.map(ack => ack.sequence), [1], "reset and replay-end barriers must not receive output ACKs");
+  const seen = [];
+  tuiRuntime.setDeepSeekTuiIdentityHandler((pty, cli) => seen.push([pty, cli]));
+  await manager.attach(PTY_ID);
+  const unlisten = await manager.subscribeOutput(PTY_ID, () => {});
+  socketStub.emitOutput(PTY_ID, { ...frame(1, marker().slice(0, 30)), sessionId: PTY_ID });
+  socketStub.emitOutput(PTY_ID, { ...frame(0, ""), sessionId: PTY_ID, kind: "reset" });
+  socketStub.emitOutput(PTY_ID, { ...frame(1, marker().slice(30)), sessionId: PTY_ID });
+  assert.deepEqual(seen, []);
+  socketStub.emitOutput(PTY_ID, { ...frame(2, marker()), sessionId: PTY_ID, replay: true });
+  assert.deepEqual(seen, [[PTY_ID, CLI_ID]]);
+  unlisten();
   await manager.closeAll();
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  assert.equal(manager.diagnosticsSnapshot().trackedSessions, 0);
-});
-
-test("ordinary terminals never acquire DeepSeek readiness from printed text", async () => {
-  const manager = new TerminalProcessManager();
-  const sessionId = "session-not-deepseek";
-  await manager.create({ sessionId, cwd: null, shell: "pwsh", envVars: {} });
-  await manager.subscribeOutput(sessionId, delivery => delivery.commit(delivery.frame.data.byteLength));
-  socketStub.emitOutput(sessionId, { ...frame(1, "dsh web: http://localhost:45125/\n"), sessionId });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  await manager.close(sessionId);
-});
-
-test("DeepSeek OSC lifecycle and readiness follow their byte order within one frame", async () => {
-  const manager = new TerminalProcessManager();
-  const sessionId = "session-deepseek-lifecycle";
-  webRuntime.trackDeepSeekWebSession(sessionId);
-  await manager.subscribeOutput(sessionId, delivery => delivery.commit(delivery.frame.data.byteLength));
-  socketStub.emitOutput(sessionId, {
-    ...frame(1, "\x1b]633;C\x07dsh web: http://127.0.0.1:45126/\n"), sessionId,
-  });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), "http://127.0.0.1:45126/");
-  socketStub.emitOutput(sessionId, {
-    ...frame(2, "dsh web: http://127.0.0.1:45127/\n\x1b]633;D;0\x07"), sessionId,
-  });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  await manager.close(sessionId);
-});
-
-test("fragmented shell finish expires readiness before the display ACK", async () => {
-  socketStub.acknowledgments.length = 0;
-  const manager = new TerminalProcessManager();
-  const sessionId = "session-deepseek-fragmented-stop";
-  webRuntime.trackDeepSeekWebSession(sessionId);
-  const deliveries = [];
-  await manager.subscribeOutput(sessionId, delivery => deliveries.push(delivery));
-  socketStub.emitOutput(sessionId, { ...frame(1, "dsh web: http://localhost:45128/\n"), sessionId });
-  socketStub.emitOutput(sessionId, { ...frame(2, "\x1b]133;D;0\x1b"), sessionId });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), "http://localhost:45128/");
-  socketStub.emitOutput(sessionId, { ...frame(3, "\\"), sessionId });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  assert.equal(deliveries.length, 3);
-  assert.deepEqual(socketStub.acknowledgments, []);
-  await manager.close(sessionId);
-});
-
-test("inactive attached PTYs observe replay readiness and stop markers without UI or OSC events", async () => {
-  socketStub.acknowledgments.length = 0;
-  const manager = new TerminalProcessManager();
-  const sessionId = "session-deepseek-inactive-attach";
-  assert.equal((await manager.attach(sessionId)).alive, true);
-  const disposeDisplay = await manager.subscribeOutput(sessionId, () => {});
-  disposeDisplay();
-  assert.equal(manager.hasActiveOutputConsumer(sessionId), false);
-  socketStub.emitOutput(sessionId, {
-    ...frame(1, "dsh web: http://localhost:45129/\n"), sessionId, replay: true,
-  });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), "http://localhost:45129/");
-  socketStub.emitOutput(sessionId, { ...frame(2, `${DEEPSEEK_STOP_MARKER}\r\n`), sessionId });
-  assert.equal(webRuntime.getDeepSeekWebUrl(sessionId), null);
-  assert.equal(manager.diagnosticsSnapshot().trackedSessions, 1, "service exit must not close its still-alive shell PTY");
-  assert.deepEqual(socketStub.acknowledgments, [], "the readiness observer cannot ACK without a display consumer");
-  await manager.close(sessionId);
+  tuiRuntime.setDeepSeekTuiIdentityHandler(null);
 });
