@@ -15,12 +15,12 @@
   "branch": "fix/deepseek-harness-tui",
   "base_branch": "master",
   "worktree_path": null,
-  "commit": null,
+  "commit": "1cbe3bca",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "用户授权创建 task 并开始实现；补充明确全部 DSH 转为 TUI。沿用 CLI-Manager TEMP 版本记录。",
+  "notes": "用户授权创建 task 并开始实现；补充明确全部 DSH 转为 TUI。沿用 CLI-Manager TEMP 版本记录。实现已提交；2026-10-01 computer-use 截图/输入通道失败，桌面手工验收待补，保持任务 active。用户明确授权提交及推送到自己的 fork。",
   "meta": {}
 }

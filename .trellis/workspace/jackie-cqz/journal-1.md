@@ -38,3 +38,36 @@ Completed official WebUI launch integration, validation and fork delivery; upstr
 ### Next Steps
 
 - Draft PR review; full native UI and WSL/SSH manual verification remain documented limitations. ZCode remains issue #272.
+
+
+## Session 2: DSH TUI implementation and desktop acceptance attempt
+
+**Date**: 2026-10-01
+**Task**: DSH TUI implementation and desktop acceptance attempt
+**Branch**: `fix/deepseek-harness-tui`
+
+### Summary
+
+Implemented native dsh-tui launch and exact per-tab recovery; desktop GUI acceptance blocked by computer-use capture/input failures.
+
+### Main Changes
+
+- Replace managed WebUI integration with installed dsh-tui launcher, scoped bridge and React compatibility preload; preserve Conda PATH order; fix projectless environment persistence and reject shell chains.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1cbe3bca` | (see git log) |
+
+### Testing
+
+- [OK] 92 focused regressions passed; TypeScript, production build and strict architecture passed; prior default-resource Rust and actual ConPTY smokes passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Complete native desktop language/create/edit/clone/focus/split/Workspan/tray/restart acceptance when computer-use becomes interactive; task remains active.
