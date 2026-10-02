@@ -1,5 +1,11 @@
 # Verification — DSH host + TUI plugin
 
+## User-confirmed desktop acceptance
+
+- After receiving the desktop acceptance procedure, the user reported that they tested the application and found no issues, then requested updating the PR description. Record native desktop acceptance as user-confirmed; do not attribute it to the earlier unsuccessful computer-use attempt.
+- The user did not provide a per-check result list or state that real WSL/SSH environments were tested. Do not convert this confirmation into claims that every language/focus/clone/guest scenario was individually observed by the agent. Guest end-to-end validation and final default-resource installer packaging remain unverified.
+- PR #273 originally referenced the ancestor WebUI branch at 0af56925. The final TUI implementation is its fast-forward descendant at d45fb2c7. Update the existing PR branch to the verified implementation and replace its title/body with the final TUI scope; preserve Draft status.
+
 ## Native-launch follow-up (2026-10-02)
 
 - Branch start: `fix/deepseek-harness-tui` and `fork/fix/deepseek-harness-tui` synchronized (0/0); existing follow-up edits were all task-owned. User explicitly requested no subagents; root performed this investigation and fix alone.
@@ -13,7 +19,7 @@
 - Real Windows native-command smoke using production PtyManager and the actual ordinary installed profile: final **1 passed, 0 failed, 0 ignored, 11.51 s**, with the production CLI_MANAGER_TAB_ID environment present. The PTY received only `dsh-tui`, rendered the UI and actual help body, accepted bracketed paste without submission, resized and returned to PowerShell after Ctrl+C. No manager OSC was emitted. Preferences/logs used ignored workspace-owned smoke paths; no plugin installation/profile editing/model request was performed. Smoke PTYs and the earlier diagnostic process tree were cleaned up.
 - A repeat smoke initially timed out because its readiness predicate assumed the first-launch session menu; initialized preferences instead opened the rendered chat screen directly. The smoke now accepts the actual chat `Context loaded` indicator as well as the initial menu, then still requires the full help body, paste and shell-return checks. This test-readiness failure was not classified as a product crash or counted as a passing run. The final pass above uses the corrected predicate.
 - Retained external-source-link compatibility: real ConPTY smoke **1 passed, 0 failed, 0 ignored, 39.68 s**. Four owned PTYs verified help/paste/resize/Ctrl+C, exact UUID resume and concurrent same-cwd distinct identities with the guarded formal resource and isolated existing profile. This is evidence for the legacy bridge path, separate from default native execution.
-- Full desktop save/edit/clone clicks, language switching, window focus/tray/split/Workspan and real WSL/SSH remain pending as previously recorded. The native PTY evidence does not replace that acceptance.
+- At the time of these agent-run checks, full desktop and real WSL/SSH acceptance were pending. Native desktop acceptance was subsequently confirmed by the user as recorded above; no separate guest results were provided. The native PTY evidence itself does not replace desktop acceptance.
 
 ## Final review and desktop acceptance attempt (2026-10-01)
 - Final 7-script frontend/bridge/runtime/process/real-Node/real-shell regression suite after the review fixes: **92 passed, 0 failed, 0 skipped**. `npx tsc --noEmit`, `npm run build` (Vite 39.60 s), and independent strict architecture passed; the existing large-chunk build warning remains. Production Rust was unchanged since the passing default-resource check and focused backend/ConPTY tests recorded below.

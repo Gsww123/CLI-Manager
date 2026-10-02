@@ -24,5 +24,5 @@
 ## Authorization
 用户已明确同意创建 Trellis task，开始实现，并将所有 DSH 入口转移为 TUI。
 
-## Manual acceptance pending
-手动界面语言切换及完整配置/窗口/guest 验收尚未执行，限制与真实证据见 verification.md。
+## User-confirmed desktop acceptance
+用户按桌面验收流程测试后反馈没有问题，并要求更新 PR 描述。该确认记为用户完成的本机桌面验收，不归为 agent computer-use 验收；各子项未单独列出，真实 WSL/SSH 与最终安装包验证仍无新增证据，见 verification.md。

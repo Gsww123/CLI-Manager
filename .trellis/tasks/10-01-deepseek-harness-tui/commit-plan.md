@@ -1,5 +1,10 @@
 # Proposed commit plan
 
+## Desktop acceptance and PR description follow-up
+`docs: record user desktop acceptance for DSH TUI`
+
+Only this task's `verification.md`, `prd.md`, `task.json` and `commit-plan.md` are changed. The user confirmed desktop testing with no issues and explicitly requested a PR-description update. Previous commit/push authorization remains valid; the verified TUI implementation is a fast-forward descendant of PR #273's old WebUI head. Publish this documentation commit to the TUI branch and fast-forward the same commits to the existing PR branch, then update its title/body without changing Draft status. The ignored body-file draft is not committed. This documentation-only follow-up requires a scoped diff check rather than rerunning unchanged code tests.
+
 ## Native startup follow-up (2026-10-02)
 `fix(deepseek): launch native TUI without manager injections`
 
