@@ -1,5 +1,14 @@
 # Changelog
 
+## [TEMP] - 2026-10-02
+
+### DeepSeek Harness TUI 配置统一
+
+- 移除新建、修改和克隆项目中的 DSH 专属“高级选项”、源码目录选择和切换按钮，仅使用其他 CLI 同样的工具、参数、Shell、启动命令及环境变量字段；默认入口仍为 `dsh-tui`。
+- 清理对应中英文界面文案；旧项目已有的源码环境变量和自定义启动命令保留兼容，不自动改写用户配置。
+- 正常安装版实际直接执行 `dsh-tui`/`dst`，不再追加管理器 bridge patch、React preload 或清理恢复变量的 Shell 脚本；沿用原生参数和用户环境，已有明确 ID 的恢复仍支持。移除旧管理器缓存 overlay，保留用户 patch 与 prompt 字面参数。
+- 修复管理器 React 兼容层破坏普通安装 profile 的依赖闭包、触发 `useRef` 空值及退出码 1 的问题；该兼容层仅保留给旧直接宿主命令的外部源码链接。正常启动预检不再要求私有 Channel registry 或限定 TUI 0.12.x；默认新会话 ID 由 TUI 自行管理，不再自动采集到管理器。
+
 ## [TEMP] - 2026-10-01
 
 ### DeepSeek Harness TUI

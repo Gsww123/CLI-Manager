@@ -109,7 +109,7 @@ fn inspect_host(root: &str) -> Result<(String, String), String> {
     ))
 }
 
-fn inspect_profile(home: &Path) -> Result<String, String> {
+fn inspect_profile(home: &Path, require_bridge: bool) -> Result<String, String> {
     let profile = home.join("profiles/dsh-tui");
     let config = manifest(
         &profile.join("package.json"),
@@ -156,10 +156,11 @@ fn inspect_profile(home: &Path) -> Result<String, String> {
         .ok_or("deepseek_tui_profile_unbuilt")?;
     let compatible = regex::Regex::new(r"^0\.12\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
         .expect("static TUI version pattern");
-    if !compatible.is_match(version)
-        || !root
-            .join("lib/types/adapter/channel/host-registry.js")
-            .is_file()
+    if require_bridge
+        && (!compatible.is_match(version)
+            || !root
+                .join("lib/types/adapter/channel/host-registry.js")
+                .is_file())
     {
         return Err("deepseek_tui_bridge_unsupported".into());
     }
@@ -170,6 +171,21 @@ fn inspect_profile(home: &Path) -> Result<String, String> {
 pub(super) fn inspect(
     source_root: Option<&str>,
     env: &HashMap<String, String>,
+) -> Result<DeepSeekTuiInfo, String> {
+    inspect_with_bridge(source_root, env, false)
+}
+
+pub(super) fn inspect_bridge(
+    source_root: Option<&str>,
+    env: &HashMap<String, String>,
+) -> Result<DeepSeekTuiInfo, String> {
+    inspect_with_bridge(source_root, env, true)
+}
+
+fn inspect_with_bridge(
+    source_root: Option<&str>,
+    env: &HashMap<String, String>,
+    require_bridge: bool,
 ) -> Result<DeepSeekTuiInfo, String> {
     let host = source_root
         .filter(|value| !value.trim().is_empty())
@@ -184,7 +200,7 @@ pub(super) fn inspect(
     if host.is_none() && !has_command(env, "dsh-tui") {
         return Err("deepseek_tui_launcher_missing".into());
     }
-    let profile_version = inspect_profile(&dsh_home(env)?)?;
+    let profile_version = inspect_profile(&dsh_home(env)?, require_bridge)?;
     let (host_entry_path, version) = host
         .map(|(entry, version)| (Some(entry), version))
         .unwrap_or((None, String::new()));
@@ -192,5 +208,6 @@ pub(super) fn inspect(
         host_entry_path,
         version,
         profile_version,
+        manager_patch_path: None,
     })
 }

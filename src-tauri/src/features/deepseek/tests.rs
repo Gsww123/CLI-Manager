@@ -220,8 +220,12 @@ fn bridge_preflight_rejects_missing_registry_and_other_release_lines() {
         .path()
         .join("home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui");
     fs::remove_file(package.join("lib/types/adapter/channel/host-registry.js")).unwrap();
+    assert!(
+        preflight::inspect(None, &env).is_ok(),
+        "native launcher does not use the private registry"
+    );
     assert_eq!(
-        preflight::inspect(None, &env).unwrap_err(),
+        preflight::inspect_bridge(None, &env).unwrap_err(),
         "deepseek_tui_bridge_unsupported"
     );
     write(
@@ -233,7 +237,11 @@ fn bridge_preflight_rejects_missing_registry_and_other_release_lines() {
         .replace("0.12.0", "0.13.0");
     fs::write(package.join("package.json"), manifest).unwrap();
     assert_eq!(
-        preflight::inspect(None, &env).unwrap_err(),
+        preflight::inspect(None, &env).unwrap().profile_version,
+        "0.13.0"
+    );
+    assert_eq!(
+        preflight::inspect_bridge(None, &env).unwrap_err(),
         "deepseek_tui_bridge_unsupported"
     );
 }

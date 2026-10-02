@@ -41,8 +41,16 @@ function install(anchor) {
   const home = selectedHome === "~" ? homedir()
     : /^~[\\/]/.test(selectedHome) ? join(homedir(), selectedHome.slice(2))
     : selectedHome || join(homedir(), ".dsh");
+  const profileRoot = realpathSync(join(home, "profiles", "dsh-tui"));
   const profileRequire = createRequire(pathToFileURL(join(home, "profiles", "dsh-tui", "package.json")));
   const profilePackage = profileRequire.resolve(`${packageName}/package.json`);
+  // An ordinary installed profile already has a coherent React closure. The
+  // compatibility hook is only for TUI source links outside that profile tree.
+  const canonical = (path) => {
+    const key = realpathSync(path).replaceAll("\\", "/");
+    return process.platform === "win32" ? key.toLowerCase() : key;
+  };
+  if (canonical(profilePackage).startsWith(canonical(profileRoot) + "/")) return;
   let selectedPackage = profilePackage;
   try {
     selectedPackage = createRequire(anchor).resolve(`${packageName}/package.json`);

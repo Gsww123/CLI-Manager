@@ -2,7 +2,7 @@
   "id": "deepseek-harness-tui",
   "name": "deepseek-harness-tui",
   "title": "DeepSeek Harness TUI 插件适配",
-  "description": "将 CLI-Manager 中全部 DSH 入口统一为官方 DSH 加载 dsh-TUI 插件；替换 WebUI 端口/URL/按钮，支持源码宿主、PTY 交互及明确会话恢复。",
+  "description": "将 DSH 统一为 dsh-TUI 原生启动；正常安装实际执行 dsh-tui，使用通用配置，保留旧源码宿主与明确会话恢复。",
   "status": "in_progress",
   "dev_type": "fullstack",
   "scope": "deepseek",
@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "用户授权创建 task 并开始实现；补充明确全部 DSH 转为 TUI。沿用 CLI-Manager TEMP 版本记录。实现已提交；2026-10-01 computer-use 截图/输入通道失败，桌面手工验收待补，保持任务 active。用户明确授权提交及推送到自己的 fork。",
+  "notes": "用户授权创建 task、实现、提交并推送 fork；沿用 TEMP。10-02 用户要求不使用子代理，root 单独复现普通安装的 React 注入崩溃并将实际默认命令改为 dsh-tui，删除专属高级选项；真实 native PTY 和旧链接兼容 smoke 通过。桌面语言/窗口/配置点击及 guest 实机验收仍待补，保持 active。",
   "meta": {}
 }

@@ -42,7 +42,6 @@ import { useSshDirectoryBrowser } from "../../remote/api/useSshDirectoryBrowser"
 import { resolveGroupBoundPath } from "../api/groupPath";
 import { pathExists } from "../../../shared/lib/pathValidation";
 
-import { DeepSeekHarnessFields } from "./DeepSeekHarnessFields";
 import { getDeepSeekSourceRoot } from "../../../shared/lib/deepseekHarness";
 import { isDeepSeekTuiTool, buildDeepSeekTuiCommand } from "../../../shared/lib/deepseekTui";
 import { deepSeekLaunchError, validateDeepSeekSource } from "../api/deepseekSource";
@@ -908,14 +907,6 @@ export function ConfigModal({ project, cloneFrom, defaultGroupId, onManageSshHos
                   className="min-h-20 resize-y font-mono text-xs leading-5"
                 />
               </div>
-
-              {isDeepSeekTuiTool(cliTool) && (
-                <DeepSeekHarnessFields
-                  envText={envVarsText}
-                  onChange={setEnvVarsText}
-                  native={projectType === "local" && !isWslUncPath(path) && normalizeShellKey(shell) !== "wsl"}
-                />
-              )}
 
               <div
                 hidden={!projectWorktreeConfigEnabled || projectType === "ssh"}

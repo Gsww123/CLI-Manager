@@ -26,7 +26,7 @@ function react(root, owner) {
     write(join(root, `${name}.cjs`), "module.exports={react:require('./index.cjs')};");
   }
 }
-function fixture({ installedBundle = true, hostName = "@deepseek-ai/dsh", linked = false } = {}) {
+function fixture({ installedBundle = true, hostName = "@deepseek-ai/dsh", linked = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "cli-manager-dsh-react-"));
   roots.push(root);
   const host = join(root, "host");
@@ -41,7 +41,7 @@ function fixture({ installedBundle = true, hostName = "@deepseek-ai/dsh", linked
     write(join(hostTui, "package.json"), tuiManifest);
     react(join(hostTui, "node_modules", "react"), "host");
   }
-  const selected = installedBundle ? hostTui : profileTui;
+  const selected = installedBundle && linked ? hostTui : profileTui;
   write(join(profileTui, "node_modules", "react-reconciler", "package.json"), { name: "react-reconciler", main: "index.cjs", peerDependencies: { react: "19.3.0" } });
   write(join(profileTui, "node_modules", "react-reconciler", "index.cjs"), "module.exports={react:require('react'),unchanged:require('unaffected')};");
   write(join(profileTui, "node_modules", "usehooks-test", "package.json"), { name: "usehooks-test", main: "index.cjs", peerDependencies: { react: "19.3.0" } });
@@ -108,6 +108,15 @@ test("source host without installation bundle falls back to the prepared profile
   assert.deepEqual(run(fixture({ installedBundle: false })), {
     sameReact: true, sameExports: true, owner: "profile", unrelatedOwner: "unrelated", unchanged: "original-dependency",
   });
+});
+
+test("ordinary installed profile keeps its coherent React dispatcher including external hook packages", () => {
+  const state = fixture({ linked: false });
+  const baseline = run(state, { enabled: false });
+  assert.equal(baseline.sameReact, true);
+  assert.equal(baseline.owner, "profile");
+  assert.deepEqual(run(state), baseline, "manager preload must not split the native renderer/hooks dispatcher");
+  assert.deepEqual(run(state, { preserveSymlinks: true }), baseline);
 });
 test("unmanaged or malformed tab IDs leave Node resolution unchanged", () => {
   const state = fixture();

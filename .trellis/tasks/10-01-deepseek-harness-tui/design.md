@@ -1,7 +1,28 @@
 # Design
 
 ## Boundaries
-官方 DSH 拥有 Agent/profile/存储；dsh-TUI 拥有交互界面。管理器只负责项目配置、PTY 生命周期与精确恢复。源目录选官方宿主，插件仍从 dsh-tui profile 加载。仅启动时写受管理 bridge patch，不改用户 profile。
+官方 DSH 拥有 Agent/profile/存储；dsh-TUI 拥有交互界面。正常安装实际只执行 `dsh-tui`/`dst`，会话选择交给原生界面；管理器保留明确 ID 恢复。旧源码/直接宿主命令仍兼容，仅这些旧入口保留受管理 bridge，不改用户 profile。下方 10-01 的过程记录由最新修复章节覆盖。
+
+## Native startup root-cause fix (2026-10-02)
+根因陈述：管理器在启动边界把针对外部源码链接的 React preload 无条件应用于普通安装 profile，令渲染器/TUI 与外部 usehooks-ts 依赖使用不同 React dispatcher，触发 `useRef` null 和宿主退出码 1；修复落在命令生成与预加载激活边界。
+
+因果证据：使用用户实际普通目录 profile（0.12.0）、全局官方宿主（0.2.0-rc.2）、同一项目目录与隔离偏好，原正式 manager preload + bridge 精确复现 useRef 堆栈和安全模式提示；仅移除 preload 时真实 TUI 会话列表和合法 UUID 正常显示。未进入安全模式、安装插件、改写用户代码或发送模型提示。此前通过的隔离 profile 是链接本地源码，不能代表普通安装。
+
+用户明确要求像 pi/codex 一样启动，因此普通 launcher 在执行时也保持 `dsh-tui`/`dst`：只读 preflight 后不挂载 bridge，不追加 preload 或清理环境的 Shell 脚本。保留用户环境与字面参数，明确 ID 仍经既有环境传递；默认新 UUID 不再自动采集。只读 IPC 增加 managerPatchPath 所有权提示，移除旧保存命令中本应用 cache 的保留 overlay，不创建文件或修改用户 patch。普通预检不再限定私有 registry/0.12.x；旧直接宿主 prepare 仍验证 bridge 兼容。React preload 仅允许外部源码链接；canonical profile 内的正常包及内部链接跳过。
+
+发现清单（GitNexus 不可用，契约 + rg；共享 resolvePtyLaunch 入口风险较高，但行为改变限于 DSH）：
+- resolvePtyLaunch 的本机与 SSH 分支：新建、分屏、Workspan、失效进程恢复、detached 启动共用；按 launcher/直接宿主区分。其他 CLI 分支确认不变，定向回归验证。
+- deepseek_tui_preflight / inspect_profile：项目保存与启动共用，只读元数据检查解除 bridge 版本限制；ownership hint 不写 cache。prepare_launch / inspect_bridge：只用于旧直接宿主入口。
+- isDeepSeekTuiLauncherCommand / stripDeepSeekTuiManagerPatch：单命令分类及旧 overlay 清理，保留用户 patch、-- 后 prompt 和显式恢复 ID。
+- React resource：普通目录守卫与外部链接兼容闭包；真实 Node 测试覆盖 external hook package，不重写第三方源码。
+- ConfigModal 与双语 messages：删除专属配置区，创建/编辑/克隆共用；只删除对应文案，旧 source env 保留。
+- TerminalProcessManager / terminalStore / saveSessionToSidebar：现有显式 ID、环境与稳定命令持久化不需改动；默认无 bridge 自然不产生新 identity。
+- PTY spawn/Windows PATH/daemon transport、history/provider/hook：确认无关，不修改。新旧进程差异在重新创建 DSH 时生效。
+
+场景矩阵：普通安装、profile 内部依赖链接、外部源码链接；原生 launcher 与旧直接宿主；PowerShell/pwsh/CMD/Bash/zsh/sh/fish、WSL/SSH；空参数/用户 patch/-- 字面参数/已保存旧 cache patch；新会话/明确 ID/未知 ID/活 daemon attach/失效进程恢复；项目/Worktree/含空格 cwd；用户 NODE_OPTIONS 与恢复环境保留。窗口焦点、托盘、分屏、Workspan、UI 模式、hook 有无不参与命令分类和模块依赖身份；桌面交互与真实 guest 验收仍需独立记录，不以纯测试代替。
+
+## Configuration follow-up (2026-10-02)
+用户要求与其他 CLI 完全统一，移除 DSH 专属高级选项与源码选择组件。影响范围为 ConfigModal 的单一挂载点、仅此组件使用的中英文文案及说明；默认命令、预检、项目环境 JSON 和恢复协议不改写，旧源码配置保留兼容。GitNexus 不可用，编辑前按契约与符号引用完成范围检查。创建/修改/克隆、本机/WSL/SSH 和旧源码 env 场景均不再显示专属配置区。
 
 ## Native launcher simplification
 用户要求常规命令直接 `dsh-tui`。沿用已授权 task/TEMP；安装版 descriptor/default builder 改为该原生启动器，prepare 不再展开 `dsh-tui`/`dst` 为直接宿主。源码高级入口与明确保存的旧宿主命令保持兼容。管理器 overlay 仍仅在执行时追加，stable metadata 不含 bridge 路径；不为命令显示而修改用户 profile 或安装包装命令。

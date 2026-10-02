@@ -39,7 +39,7 @@ import {
   releaseProjectExtensionSnapshot as releaseProjectExtensionSnapshotApi,
 } from "../../extensions/api/projectPolicy";
 
-import { isDeepSeekTuiTool, isDeepSeekTuiCommand, buildDeepSeekTuiResumeCommand, prepareDeepSeekTuiCommand, withDeepSeekTuiPatch, withDeepSeekTuiPreload, stripDeepSeekTuiManagerPatch, getDeepSeekTuiCommandSourceRoot } from "../../../shared/lib/deepseekTui";
+import { isDeepSeekTuiTool, isDeepSeekTuiCommand, isDeepSeekTuiLauncherCommand, buildDeepSeekTuiResumeCommand, prepareDeepSeekTuiCommand, withDeepSeekTuiPatch, withDeepSeekTuiPreload, stripDeepSeekTuiManagerPatch, getDeepSeekTuiCommandSourceRoot } from "../../../shared/lib/deepseekTui";
 import { deepSeekLaunchError } from "../../projects/api/deepseekSource";
 
 /** Localize project launch validation at the existing public-command boundary. */
@@ -466,11 +466,14 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       : options.envVars ?? {}) };
     let persistedStartupCmd: string | undefined;
     if (isDeepSeekTuiCommand(resolvedStartupCmd)) {
+      const nativeTuiLauncher = isDeepSeekTuiLauncherCommand(resolvedStartupCmd);
       const preparedTui = prepareDeepSeekTuiCommand(resolvedStartupCmd!);
       persistedStartupCmd = preparedTui.command;
-      resolvedStartupCmd = preparedTui.resumeSessionId ? preparedTui.command
+      resolvedStartupCmd = nativeTuiLauncher || preparedTui.resumeSessionId ? preparedTui.command
         : clearDeepSeekTuiResumeBeforeStartup(preparedTui.command, "bash");
-      resolvedEnvironmentOverrides.DSH_TUI_RESUME_SESSION = preparedTui.resumeSessionId ?? "";
+      if (!nativeTuiLauncher || preparedTui.resumeSessionId) {
+        resolvedEnvironmentOverrides.DSH_TUI_RESUME_SESSION = preparedTui.resumeSessionId ?? "";
+      }
       resolvedEnvironmentOverrides.NODE_ENV ??= "production";
     }
     const toolSource = project?.environment_type === "ssh"
@@ -574,6 +577,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
     if (normalizeShellKey(resolvedShell) === "wsl") throw deepSeekLaunchError(new Error("deepseek_source_native_only"));
   }
   let preparedTui: ReturnType<typeof prepareDeepSeekTuiCommand> | null = null;
+  const nativeTuiLauncher = isDeepSeekTuiLauncherCommand(resolvedStartupCmd);
   let deepseekPreload: { preloadUrl: string; cmdPreloadPath: string } | null = null;
   let persistedStartupCmd: string | undefined;
   if (isDeepSeekTuiCommand(resolvedStartupCmd)) {
@@ -582,13 +586,25 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       resolvedStartupCmd = preparedTui.command;
       persistedStartupCmd = preparedTui.command;
       if (normalizeShellKey(resolvedShell) !== "wsl") {
-        const prepared = await invoke<{ patchPath: string; preloadUrl: string; cmdPreloadPath: string }>("deepseek_tui_prepare_launch", {
-          sourceRoot: deepseekSource || null,
-          envVars: options.envVars ?? null,
-        });
-        persistedStartupCmd = stripDeepSeekTuiManagerPatch(resolvedStartupCmd, prepared.patchPath);
-        resolvedStartupCmd = withDeepSeekTuiPatch(persistedStartupCmd, prepared.patchPath, resolvedShell ?? defaultShellForOs(os));
-        deepseekPreload = prepared;
+        if (nativeTuiLauncher) {
+          const info = await invoke<{ managerPatchPath?: string }>("deepseek_tui_preflight", {
+            sourceRoot: null,
+            envVars: options.envVars ?? null,
+          });
+          // Old manager overlays must not survive a saved command migration.
+          resolvedStartupCmd = info.managerPatchPath
+            ? stripDeepSeekTuiManagerPatch(resolvedStartupCmd, info.managerPatchPath)
+            : resolvedStartupCmd;
+          persistedStartupCmd = resolvedStartupCmd;
+        } else {
+          const prepared = await invoke<{ patchPath: string; preloadUrl: string; cmdPreloadPath: string }>("deepseek_tui_prepare_launch", {
+            sourceRoot: deepseekSource || null,
+            envVars: options.envVars ?? null,
+          });
+          persistedStartupCmd = stripDeepSeekTuiManagerPatch(resolvedStartupCmd, prepared.patchPath);
+          resolvedStartupCmd = withDeepSeekTuiPatch(persistedStartupCmd, prepared.patchPath, resolvedShell ?? defaultShellForOs(os));
+          deepseekPreload = prepared;
+        }
       }
     } catch (error) { throw deepSeekLaunchError(error); }
   }
@@ -781,7 +797,7 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
   if (deepseekPreload && startupCmd) {
     startupCmd = withDeepSeekTuiPreload(startupCmd, deepseekPreload.preloadUrl, deepseekPreload.cmdPreloadPath, resolvedShell ?? defaultShellForOs(os));
   }
-  if (preparedTui && !preparedTui.resumeSessionId && startupCmd) {
+  if (preparedTui && !nativeTuiLauncher && !preparedTui.resumeSessionId && startupCmd) {
     startupCmd = clearDeepSeekTuiResumeBeforeStartup(startupCmd, resolvedShell ?? defaultShellForOs(os));
   }
   return {
@@ -805,7 +821,9 @@ export async function resolvePtyLaunch(options: DetachedPtyLaunchOptions, os: Os
       envVars: {
         ...buildPtyEnvVars(options.envVars ?? null, resolvedShell),
         ...(preparedTui ? {
-          DSH_TUI_RESUME_SESSION: preparedTui.resumeSessionId ?? "",
+          ...(!nativeTuiLauncher || preparedTui.resumeSessionId ? {
+            DSH_TUI_RESUME_SESSION: preparedTui.resumeSessionId ?? "",
+          } : {}),
           NODE_ENV: options.envVars?.NODE_ENV ?? "production",
         } : {}),
       },

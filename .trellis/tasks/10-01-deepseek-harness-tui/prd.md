@@ -5,12 +5,12 @@
 
 ## Requirements
 - 统一 DSH CLI 描述符、旧项目识别、品牌图标和配置，安装版默认使用 dsh-tui，由启动器负责官方宿主与 profile；源码调试保留直接官方宿主入口。
-- 常规配置沿用其他 CLI 的字段流程；可选源码调试设置收进高级选项，默认收起，已有配置可见且可切回安装版。
+- 常规配置仅使用其他 CLI 的通用字段；不显示 DSH 专属高级选项或源码目录选择，默认直接使用 dsh-tui。已有源码环境变量与明确源码命令保留兼容。
 - 可选官方源码目录复用 CLI_MANAGER_DSH_SOURCE_ROOT；cwd 保持项目/Worktree；不要求 Web 构建。
 - 插件由官方 profile 安装加载。配置校验只读，不隐式安装或修改 profile。
 - 移除管理器 Web URL 状态、自动端口参数、WebUI 按钮及退出 marker。
 - 明确 ID 恢复、不读共享 last 指针；存活 daemon 复用，失效进程新建终端不灌回旧 TUI 画面。
-- 最小管理器 bridge 只报告当前前台 DSH session UUID，限定 PTY UUID，不能把后台/其他 Tab ID 当当前会话。
+- 正常安装的实际执行命令保持 dsh-tui/dst，不追加 patch、NODE_OPTIONS 或 Shell 包装；新会话列表和 UUID 由 TUI 管理。仅旧直接宿主命令保留按 PTY UUID 隔离的 bridge；明确 ID 恢复保留。
 - 用户自定义启动脚本保留；unsupported 环境/配置给出准确双语说明。
 - 不在本批伪造 DSH 原生历史统计、供应商、完成通知、MCP/Skills 能力。
 

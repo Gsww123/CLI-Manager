@@ -1,5 +1,34 @@
 # Proposed commit plan
 
+## Native startup follow-up (2026-10-02)
+`fix(deepseek): launch native TUI without manager injections`
+
+User's existing authorization covers committing/pushing this task to their fork. This follow-up was investigated and implemented by root only, as requested. Scope was checked by contracts, symbol references and Git diff because GitNexus is unavailable; no claim is made that detect_changes ran. Explicit files:
+
+- `.trellis/spec/backend/deepseek-tui-contracts.md`
+- `.trellis/tasks/10-01-deepseek-harness-tui/design.md`
+- `.trellis/tasks/10-01-deepseek-harness-tui/prd.md`
+- `.trellis/tasks/10-01-deepseek-harness-tui/verification.md`
+- `.trellis/tasks/10-01-deepseek-harness-tui/commit-plan.md`
+- `.trellis/tasks/10-01-deepseek-harness-tui/task.json`
+- `CHANGELOG.md`
+- `docs/功能清单.md`
+- `scripts/deepseekTuiReactPreload.test.mjs`
+- `scripts/deepseekTuiRuntime.test.mjs`
+- `src-tauri/resources/deepseek-tui-react-preload.mjs`
+- `src-tauri/src/features/deepseek/commands.rs`
+- `src-tauri/src/features/deepseek/preflight.rs`
+- `src-tauri/src/features/deepseek/tests.rs`
+- `src-tauri/tests/deepseek_tui_smoke.rs`
+- `src/features/projects/components/ConfigModal.tsx`
+- `src/features/projects/components/DeepSeekHarnessFields.tsx` (removed)
+- `src/features/terminal/lib/terminalLaunch.ts`
+- `src/shared/i18n/messages/projects.en-US.ts`
+- `src/shared/i18n/messages/projects.zh-CN.ts`
+- `src/shared/lib/deepseekTui.ts`
+
+No ignored smoke log/preferences, user installation/profile, external repository, credentials, dependency or unrelated feature enters this commit. Full desktop/guest acceptance remains pending; task stays active.
+
 ## Work commit
 `feat(deepseek): replace WebUI integration with DSH TUI`
 

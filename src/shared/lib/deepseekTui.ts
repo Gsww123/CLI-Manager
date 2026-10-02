@@ -72,6 +72,15 @@ export function isDeepSeekTuiCommand(command: string | null | undefined): boolea
   } catch { return false; }
 }
 
+/** Native launchers own their dependencies and profile; never decorate their execution. */
+export function isDeepSeekTuiLauncherCommand(command: string | null | undefined): boolean {
+  try {
+    const parts = tokens(command?.trim() ?? "");
+    if (parts[0]?.value === "&") parts.shift();
+    return ALIAS.test(parts[0]?.value ?? "");
+  } catch { return false; }
+}
+
 /** Resolve the source host actually selected by a saved/custom command, independent of project metadata. */
 export function getDeepSeekTuiCommandSourceRoot(command: string | null | undefined): string {
   if (!isDeepSeekTuiCommand(command)) return "";

@@ -14,16 +14,29 @@ pub struct DeepSeekTuiInfo {
     host_entry_path: Option<String>,
     version: String,
     profile_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manager_patch_path: Option<String>,
 }
 
 /// Inspect the selected host and prepared plugin profile without executing user code.
 #[tauri::command]
 pub async fn deepseek_tui_preflight(
+    app: tauri::AppHandle,
     source_root: Option<String>,
     env_vars: Option<HashMap<String, String>>,
 ) -> Result<DeepSeekTuiInfo, String> {
+    // Read-only ownership hint for removing overlays saved by older managers.
+    let cache = app.path().app_cache_dir().ok();
     tauri::async_runtime::spawn_blocking(move || {
-        preflight::inspect(source_root.as_deref(), &env_vars.unwrap_or_default())
+        let mut info = preflight::inspect(source_root.as_deref(), &env_vars.unwrap_or_default())?;
+        info.manager_patch_path = cache.map(|path| {
+            path.join("deepseek-tui")
+                .join("0".repeat(64))
+                .join("bridge.yml")
+                .to_string_lossy()
+                .into_owned()
+        });
+        Ok(info)
     })
     .await
     .map_err(|_| "deepseek_tui_profile_unbuilt".to_string())?
@@ -50,7 +63,7 @@ pub async fn deepseek_tui_prepare_launch(
         .app_cache_dir()
         .map_err(|_| "deepseek_tui_patch_failed")?;
     tauri::async_runtime::spawn_blocking(move || {
-        preflight::inspect(source_root.as_deref(), &env_vars.unwrap_or_default())?;
+        preflight::inspect_bridge(source_root.as_deref(), &env_vars.unwrap_or_default())?;
         launch::prepare_patch(&cache)
     })
     .await

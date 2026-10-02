@@ -128,7 +128,7 @@ function launchFixture(project, failPreflight = false, patchPath = "C:/manager c
     isDeepSeekHarnessTool: helpers.isDeepSeekTuiTool,
     resolveProjectStartupCommand: (entry) => entry.startup_cmd || helpers.buildDeepSeekTuiCommand(entry.cli_tool, entry.cli_args || "", entry.source || "", entry.shell),
     getDeepSeekSourceRoot: () => project?.source || "", deepSeekLaunchError: (error) => error,
-    invoke: async (command, args) => { calls.push([command, args]); if (failPreflight) throw new Error("deepseek_tui_profile_missing"); return { patchPath, preloadUrl: "file:///C:/manager%20cache/react-preload.mjs", cmdPreloadPath: "C:/manager cache/node-options.cmd" }; },
+    invoke: async (command, args) => { calls.push([command, args]); if (failPreflight) throw new Error("deepseek_tui_profile_missing"); return { managerPatchPath: patchPath, patchPath, preloadUrl: "file:///C:/manager%20cache/react-preload.mjs", cmdPreloadPath: "C:/manager cache/node-options.cmd" }; },
     prepareProviderLaunchSnapshot: async () => { calls.push(["provider"]); return null; },
     buildNativeProviderLaunchConfigs: () => ({ claudeProvider: null, codexProvider: null, grokProvider: null }),
     resolveExtensionEnvironment: () => null, extensionCliForProject: () => null,
@@ -164,25 +164,56 @@ test("failed TUI preflight does not allocate a provider snapshot or start a PTY"
   assert.equal(calls.length, 1);
 });
 
-test("installed launch saves the simple TUI entry and adds bridge arguments only for execution", async () => {
-  const { fn } = launchFixture({ id: "project", cli_tool: "dsh", shell: "powershell" });
+test("installed launch executes exactly its saved native launcher without overlays or React preload", async () => {
+  const { fn, calls } = launchFixture({ id: "project", cli_tool: "dsh", shell: "powershell" });
   const result = await fn.resolvePtyLaunch({ projectId: "project" }, "windows");
   assert.equal(result.persistedStartupCmd, "dsh-tui");
-  assert.match(result.startupCmd, /dsh-tui --patch 'C:\/manager cache\/bridge.yml'/);
-  assert.doesNotMatch(result.startupCmd, /--profile/);
+  assert.equal(result.startupCmd, "dsh-tui");
+  assert.equal(result.invokeArgs.envVars.DSH_TUI_RESUME_SESSION, undefined);
+  assert.equal(calls[0][0], "deepseek_tui_preflight");
+  assert.ok(!calls.some(([name]) => name === "deepseek_tui_prepare_launch"));
 });
 
-test("CMD fresh clear runs outside the preload scope so the batch receives the actual TUI launcher", async () => {
+test("CMD native launcher preserves actual user Node options and explicit resume without shell wrappers", async () => {
   const { fn } = launchFixture({ id: "project", cli_tool: "dsh", shell: "cmd" });
   const envVars = { NODE_OPTIONS: '--require="C:/user preload.cjs"' };
   const fresh = await fn.resolvePtyLaunch({ projectId: "project", shell: "cmd", envVars }, "windows");
-  assert.match(fresh.startupCmd, /^set "DSH_TUI_RESUME_SESSION=" & "C:\/manager cache\/node-options.cmd" dsh-tui --patch/);
+  assert.equal(fresh.startupCmd, "dsh-tui");
   assert.equal(fresh.persistedStartupCmd, "dsh-tui");
   assert.equal(fresh.invokeArgs.envVars.NODE_OPTIONS, envVars.NODE_OPTIONS);
   const resumed = await fn.resolvePtyLaunch({ projectId: "project", shell: "cmd", startupCmd: `dsh-tui --resume ${CLI}`, envVars }, "windows");
-  assert.match(resumed.startupCmd, /^"C:\/manager cache\/node-options.cmd" dsh-tui --patch/);
+  assert.equal(resumed.startupCmd, "dsh-tui");
   assert.equal(fn.getDeepSeekTuiLaunchSessionId(resumed), CLI);
   assert.equal(envVars.NODE_OPTIONS, '--require="C:/user preload.cjs"');
+});
+
+test("native launchers and literal app arguments remain simple across shells, guests and worktree cwd", async () => {
+  for (const shell of ["powershell", "pwsh", "cmd", "bash", "zsh", "sh", "gitbash", "wsl", "fish"]) {
+    const { fn } = launchFixture(null);
+    for (const command of ["dsh-tui", "dst", "& dsh-tui --model example", "dsh-tui -- hello --patch literal"]) {
+      const cwd = "C:/project with spaces/.worktrees/feature";
+      const result = await fn.resolvePtyLaunch({ startupCmd: command, shell, cwd }, "windows");
+      assert.equal(result.startupCmd, command, shell);
+      assert.equal(result.persistedStartupCmd, command);
+      assert.equal(result.invokeArgs.cwd, cwd);
+      assert.equal(result.invokeArgs.envVars.DSH_TUI_RESUME_SESSION, undefined);
+    }
+  }
+  const { fn, calls } = launchFixture(null);
+  const remote = await fn.resolvePtyLaunch({ sshHostId: "host", cwd: "/work", startupCmd: "dsh-tui" }, "windows");
+  assert.equal(remote.invokeArgs.sshLaunch.startupCommand, "dsh-tui");
+  assert.equal(remote.invokeArgs.sshLaunch.environmentOverrides.DSH_TUI_RESUME_SESSION, undefined);
+  assert.equal(calls.length, 0);
+});
+
+test("native launch removes old manager overlays while preserving user patches and prompt literals", async () => {
+  const oldPatch = `C:/manager cache/deepseek-tui/${"a".repeat(64)}/bridge.yml`;
+  const hint = `C:/manager cache/deepseek-tui/${"0".repeat(64)}/bridge.yml`;
+  const command = `dsh-tui --patch '${oldPatch}' --patch 'C:/user.yml' -- --patch '${oldPatch}'`;
+  const { fn } = launchFixture(null, false, hint);
+  const result = await fn.resolvePtyLaunch({ startupCmd: command, shell: "powershell" }, "windows");
+  assert.equal(result.startupCmd, `dsh-tui --patch 'C:/user.yml' -- --patch '${oldPatch}'`);
+  assert.equal(result.persistedStartupCmd, result.startupCmd);
 });
 
 test("ordinary CLI startup does not prepare or append the DSH preload", async () => {

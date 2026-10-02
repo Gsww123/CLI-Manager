@@ -215,6 +215,104 @@ fn real_tui_conpty_initial_input_resize_stop_and_exact_resume() {
     });
 }
 
+/// Exercise the production default: type the native command with no manager code.
+#[test]
+#[ignore = "requires an already installed native dsh-tui and explicit smoke home/preferences"]
+fn real_native_launcher_render_input_resize_stop() {
+    let home = std::env::var("CLI_MANAGER_DSH_TUI_SMOKE_HOME").expect("set existing DSH_HOME");
+    let user_home =
+        std::env::var("CLI_MANAGER_DSH_TUI_SMOKE_USER_HOME").expect("set isolated preferences");
+    assert!(
+        PathBuf::from(&home)
+            .join("profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/bin/dsh-tui.js")
+            .is_file(),
+        "profile must be installed before the smoke; never bootstrap"
+    );
+    let root = PathBuf::from(&user_home)
+        .parent()
+        .unwrap()
+        .join("native-command");
+    let project = root.join(format!("project with spaces {}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&project).unwrap();
+    let log = root.join("conpty.log");
+    let manager = PtyManager::new();
+    let sink = Arc::new(Sink::default());
+    let tab = uuid::Uuid::new_v4().to_string();
+    let env = HashMap::from([
+        ("DSH_HOME".to_owned(), home),
+        ("CLI_MANAGER_TAB_ID".to_owned(), tab.clone()),
+        ("HOME".to_owned(), user_home.clone()),
+        ("USERPROFILE".to_owned(), user_home),
+        ("NODE_ENV".to_owned(), "production".to_owned()),
+        ("DSH_TELEMETRY_MODE".to_owned(), "DISABLED".to_owned()),
+    ]);
+    manager
+        .create(
+            &tab,
+            Some(project.to_str().unwrap()),
+            Some(env),
+            Some("powershell"),
+            sink.clone(),
+        )
+        .unwrap();
+    let _close = Close(&manager, &tab);
+    native_wait(&sink, &log, |text| text.contains("PS "));
+    manager.resize(&tab, 110, 32, None, None).unwrap();
+    manager.write(&tab, "dsh-tui\r").unwrap();
+    native_wait(&sink, &log, |text| {
+        text.contains("New session") || text.contains("新会话") || text.contains("Context loaded")
+    });
+    std::thread::sleep(Duration::from_secs(5));
+    manager.write(&tab, "\x1b").unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    manager.resize(&tab, 80, 24, None, None).unwrap();
+    manager.write(&tab, "/help\r").unwrap();
+    native_wait(&sink, &log, help_visible);
+    manager.write(&tab, "\x1b").unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    manager
+        .write(&tab, "\x1b[200~CLI_MANAGER_NATIVE_PASTE\x1b[201~")
+        .unwrap();
+    native_wait(&sink, &log, |text| {
+        text.contains("CLI_MANAGER_NATIVE_PASTE")
+    });
+    let before_stop = sink.text().len();
+    for _ in 0..3 {
+        manager.write(&tab, "\x03").unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    // Wait for the shell before issuing a shell probe; never submit it to a model.
+    let result = native_wait(&sink, &log, |text| {
+        text.get(before_stop..)
+            .is_some_and(|tail| tail.contains("PS "))
+    });
+    assert!(!result.contains("crashed:") && !result.contains("Cannot read properties of null"));
+    assert!(
+        session(&result, &tab).is_none(),
+        "native startup must not mount the manager bridge"
+    );
+    std::fs::write(log, result).unwrap();
+    eprintln!("Bare dsh-tui: real render/help/paste/resize/Ctrl+C passed");
+}
+
+fn native_wait(sink: &Sink, log: &std::path::Path, predicate: impl Fn(&str) -> bool) -> String {
+    let deadline = Instant::now() + Duration::from_secs(40);
+    loop {
+        let text = sink.text();
+        if text.contains("crashed:")
+            || text.contains("Cannot read properties of null")
+            || Instant::now() >= deadline
+        {
+            std::fs::write(log, text).unwrap();
+            panic!("native launcher failed; inspect {}", log.display());
+        }
+        if predicate(&text) {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Diagnostic A/B evidence only: assertions remain in the functional smoke above.
 #[test]
 #[ignore = "requires explicit isolated diagnostic profile and installed launcher"]
