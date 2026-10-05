@@ -63,8 +63,13 @@ pub(crate) async fn inspect() -> Result<SkillInventory, String> {
                     cli,
                     root.source_kind,
                 )
-                .map(|entries| {
+                .and_then(|(entries, limited)| {
                     found = entries;
+                    if limited {
+                        Err("extensions_inventory_limit".into())
+                    } else {
+                        Ok(())
+                    }
                 })
             } else {
                 scan_local(
@@ -128,7 +133,17 @@ fn is_link(metadata: &fs::Metadata) -> bool {
     }
 }
 
-// Bounded traversal inspects directory links without recursing through them, including dangling links.
+const MAX_INVENTORY_DEPTH: usize = 8;
+const MAX_INVENTORY_ENTRIES: usize = 500;
+const MAX_INVENTORY_PATHS: usize = 10_000;
+
+struct ScanBudget<'a> {
+    examined: usize,
+    depth_limited: bool,
+    visited: &'a mut BTreeSet<std::path::PathBuf>,
+}
+
+// Preserve partial warnings without letting a depth cutoff suppress bounded sibling discovery.
 fn scan_local(
     path: &Path,
     cli: ExtensionCli,
@@ -137,18 +152,45 @@ fn scan_local(
     visited: &mut BTreeSet<std::path::PathBuf>,
     output: &mut Vec<InventoryEntry>,
 ) -> Result<(), String> {
-    if depth > 8 || output.len() >= 500 {
+    let mut budget = ScanBudget {
+        examined: 0,
+        depth_limited: false,
+        visited,
+    };
+    scan_local_bounded(path, cli, kind, depth, &mut budget, output)?;
+    if budget.depth_limited {
+        Err("extensions_inventory_limit".into())
+    } else {
+        Ok(())
+    }
+}
+
+// Entry/path limits stop the root; depth only truncates a branch. Never recurse into links.
+fn scan_local_bounded(
+    path: &Path,
+    cli: ExtensionCli,
+    kind: &str,
+    depth: usize,
+    budget: &mut ScanBudget<'_>,
+    output: &mut Vec<InventoryEntry>,
+) -> Result<(), String> {
+    if output.len() >= MAX_INVENTORY_ENTRIES || budget.examined >= MAX_INVENTORY_PATHS {
         return Err("extensions_inventory_limit".into());
     }
+    budget.examined += 1;
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && depth == 0 => return Ok(()),
         Err(_) => return Err("extensions_inventory_unreadable".into()),
     };
-    if !metadata.is_dir() && !is_link(&metadata) {
+    let link = is_link(&metadata);
+    if !metadata.is_dir() && !link {
         return Ok(());
     }
-    let link = is_link(&metadata);
+    if depth > MAX_INVENTORY_DEPTH {
+        budget.depth_limited = true;
+        return Ok(());
+    }
     let resolved = fs::canonicalize(path).ok();
     let manifest = path.join("SKILL.md").is_file();
     if manifest || link {
@@ -188,15 +230,21 @@ fn scan_local(
         return Ok(());
     }
     if let Some(resolved) = resolved {
-        if !visited.insert(resolved) {
+        if !budget.visited.insert(resolved) {
             return Ok(());
         }
     }
     for entry in fs::read_dir(path).map_err(|_| "extensions_inventory_unreadable")? {
         let entry = entry.map_err(|_| "extensions_inventory_unreadable")?;
-        scan_local(&entry.path(), cli, kind, depth + 1, visited, output)?;
+        scan_local_bounded(&entry.path(), cli, kind, depth + 1, budget, output)?;
     }
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct WslInventory {
+    entries: Vec<InventoryEntry>,
+    limited: bool,
 }
 
 // All WSL traversal runs inside the selected distro, with bounded output and no installation scripts.
@@ -205,7 +253,7 @@ fn scan_wsl(
     distro: &str,
     cli: ExtensionCli,
     kind: &str,
-) -> Result<Vec<InventoryEntry>, String> {
+) -> Result<(Vec<InventoryEntry>, bool), String> {
     let linux = crate::wsl::parse_wsl_unc_path(path)
         .map(|(_, p)| p)
         .unwrap_or_else(|| path.replace('\\', "/"));
@@ -231,27 +279,43 @@ fn scan_wsl(
     if !output.status.success() {
         return Err("extensions_inventory_unreadable".into());
     }
-    let mut entries: Vec<InventoryEntry> =
+    let mut inventory: WslInventory =
         serde_json::from_slice(&output.stdout).map_err(|_| "extensions_inventory_invalid")?;
-    for entry in &mut entries {
+    for entry in &mut inventory.entries {
         entry.path = crate::wsl::linux_to_unc_wsl_path(&entry.path, distro);
         entry.import_path = entry
             .import_path
             .as_ref()
             .map(|p| crate::wsl::linux_to_unc_wsl_path(p, distro));
     }
-    Ok(entries)
+    Ok((inventory.entries, inventory.limited))
 }
 
 const WSL_SCAN: &str = r#"
 import os, sys, json
 root, cli, kind = sys.argv[1:]
 result = []
+MAX_INVENTORY_DEPTH = 8
+MAX_INVENTORY_ENTRIES = 500
+MAX_INVENTORY_PATHS = 10000
+examined = 0
+limited = False
+stopped = False
+
 def visit(path, depth):
-    if depth > 8 or len(result) >= 500: raise RuntimeError('limit')
-    if not os.path.lexists(path): return
-    if not os.path.isdir(path) and not os.path.islink(path): return
+    global examined, limited, stopped
+    if len(result) >= MAX_INVENTORY_ENTRIES or examined >= MAX_INVENTORY_PATHS:
+        limited = stopped = True
+        return
+    examined += 1
+    if not os.path.lexists(path):
+        if depth == 0: return
+        raise FileNotFoundError(path)
     linked = os.path.islink(path)
+    if not os.path.isdir(path) and not linked: return
+    if depth > MAX_INVENTORY_DEPTH:
+        limited = True
+        return
     manifest = os.path.isfile(os.path.join(path, 'SKILL.md'))
     if manifest or linked:
         result.append(dict(cli=cli, name=os.path.basename(path), path=path,
@@ -260,37 +324,13 @@ def visit(path, depth):
             linkTarget=os.path.realpath(path) if linked else None,
             importPath=os.path.realpath(path) if manifest else None, managed=False))
         return
-    for name in sorted(os.listdir(path)): visit(os.path.join(path, name), depth + 1)
+    for name in sorted(os.listdir(path)):
+        visit(os.path.join(path, name), depth + 1)
+        if stopped: break
 visit(root, 0)
-print(json.dumps(result))
+print(json.dumps(dict(entries=result, limited=limited)))
 "#;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn discovers_native_plugin_and_builtin_without_reading_skill_bodies() {
-        let root = tempfile::tempdir().unwrap();
-        for name in ["one", ".system/builtin", "vendor/plugin/skills/two"] {
-            fs::create_dir_all(root.path().join(name)).unwrap();
-            fs::write(
-                root.path().join(name).join("SKILL.md"),
-                "---\nname: test\n---",
-            )
-            .unwrap();
-        }
-        let mut entries = Vec::new();
-        scan_local(
-            root.path(),
-            ExtensionCli::Claude,
-            "native",
-            0,
-            &mut BTreeSet::new(),
-            &mut entries,
-        )
-        .unwrap();
-        assert_eq!(entries.len(), 3);
-        assert!(entries.iter().any(|e| e.source_kind == "builtin"));
-        assert!(entries.iter().all(|e| e.import_path.is_some()));
-    }
-}
+#[path = "inventory_tests.rs"]
+mod tests;

@@ -1,0 +1,29 @@
+{
+  "id": "skill-inventory-depth-cutoff",
+  "name": "skill-inventory-depth-cutoff",
+  "title": "Preserve shallow skill discovery after depth cutoffs",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "skills",
+  "package": null,
+  "priority": "P2",
+  "creator": "kongzhuww",
+  "assignee": "kongzhuww",
+  "createdAt": "2026-10-05",
+  "completedAt": null,
+  "branch": "fix/275-skill-inventory-depth",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "issue": "275",
+    "changelog_version": "TEMP"
+  }
+}
