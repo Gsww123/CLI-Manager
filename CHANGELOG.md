@@ -1,5 +1,12 @@
 # Changelog
 
+## [TEMP]
+
+### Scoop Git Bash 检测修复
+
+- 修复 Scoop 安装的 Git Bash 显示未检测到的问题；统一解析层支持 Scoop shims、默认/自定义/全局安装根以及 Git/cmd 等 PATH 布局，设置扫描、图标与内外部终端共用结果。
+- 保留原默认安装与传统 PATH 优先级，不修改用户 PATH；新增候选校验 Git for Windows 布局，避免误选 WSL 或任意同名 bash.exe。安装版需重新构建并更新后生效。
+
 ## [V1.4.1] - 2026-09-23
 
 ### Codex 排队提问快捷键修复（2026-09-30）
