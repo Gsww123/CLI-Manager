@@ -59,6 +59,8 @@ mod conpty_sideload;
 mod crash_reporter;
 #[path = "infrastructure/storage/credential_store.rs"]
 pub(crate) mod credential_store;
+#[path = "infrastructure/storage/repo_operation.rs"]
+pub(crate) mod repo_operation;
 // daemon 二进制（src/bin/cli-manager-daemon.rs）经 lib 复用以下模块，
 // 因此 app_paths 与 daemon 需 pub。
 #[path = "infrastructure/daemon/mod.rs"]
@@ -978,6 +980,19 @@ pub fn run() {
             commands::git_worktree::git_worktree_check_deps,
             commands::git_worktree::git_worktree_merge,
             commands::git_worktree::git_worktree_force_merge,
+            commands::git_worktree::conflicts::recovery_commands::git_worktree_recovery_probe,
+            commands::git_worktree::conflicts::recovery_commands::git_worktree_recovery_recheck,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_probe_conflicts,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_prepare_conflicts,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_conflict_status,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_conflict_file,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_save_conflict_draft,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_take_conflict_side,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_resolve_conflict_file,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_continue_conflicts,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_abort_conflicts,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_recheck_conflicts,
+            commands::git_worktree::conflicts::conflict_commands::git_worktree_release_conflicts,
             commands::git_worktree::git_worktree_remove,
             commands::subagent_transcript::subagent_transcript_subscribe,
             commands::subagent_transcript::subagent_transcript_unsubscribe,

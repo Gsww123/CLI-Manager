@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "用户授权创建 task、实现、提交并推送 fork；沿用 TEMP。root 按要求单独排查，默认实际执行 dsh-tui，删除专属高级选项；native PTY 与旧链接 smoke 通过。用户随后完成桌面测试并反馈无问题，要求更新现有 PR #273 的最终 TUI 描述；本机验收记为用户确认，不虚构逐项/guest 或 agent GUI 证据。PR 保持 Draft，真实 guest 与最终资源打包仍未补验证。",
+  "notes": "用户授权创建 task、实现、提交并推送 fork；沿用 TEMP。root 按要求单独排查，默认实际执行 dsh-tui，删除专属高级选项；native PTY 与旧链接 smoke 通过。用户完成桌面测试并反馈无问题，现有 PR #273 已更新最终 TUI 描述，并按用户要求改为 Ready。2026-10-07 用户报告合并冲突，在同一 task 合入 master ff4dd3c3，完整保留双方记录与中英文键值，验证后提交推送。桌面验收记为用户确认，不虚构逐项/guest 或 agent GUI 证据；真实 guest 与最终资源打包仍未补验证。",
   "meta": {}
 }

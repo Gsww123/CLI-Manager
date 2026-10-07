@@ -1827,3 +1827,36 @@ V1.4.1：保留用户字体优先，增加外部程序选择，修复 WSL 参数
 ### Status
 
 [OK] **Completed**
+
+
+## Session 126: Worktree 合并优化交付与清理
+
+**Date**: 2026-10-07
+**Task**: Worktree 合并优化交付与清理
+**Branch**: `master`
+
+### Summary
+
+用户认可后提交 Worktree 合并恢复与三栏冲突解决；删除两个旧组件及六个 issue 临时缓存，保留设计和回归资料，Refs #271 #269。
+
+### Main Changes
+
+- 终端主题、自适应拖拽列宽、逐块解决和显式应用结果；V1.4.2 记录已同步。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2f4175ab` | (see git log) |
+
+### Testing
+
+- [OK] 清理后 Node 定向 28/28、TypeScript 和 strict 架构检查通过；此前双语浏览器验证通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 完整原生 WebView2 环境矩阵与 64,887 文件性能复测仍未完成，历史证据保留；未推送远程。

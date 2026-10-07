@@ -1,5 +1,10 @@
 # Proposed commit plan
 
+## PR merge-conflict follow-up (2026-10-07)
+`merge: resolve DSH TUI conflicts with master`
+
+The user reported conflicts in the existing PR and previously authorized commit/push. Merge `origin/master` at `ff4dd3c3` into the existing feature branch without rebase or force push. Manual conflict resolution preserves both branches' complete CHANGELOG additions and project translation maps. Review the automatic terminal-store and Rust-entry merges; run focused DSH/Worktree regressions, TypeScript, Rust and strict architecture checks before committing. Update the task verification/metadata and the required TEMP changelog/feature records. The merge commit includes upstream changes plus only these task-owned resolution/record edits. Push the result to both fork feature refs so PR #273 receives the conflict fix, and verify GitHub mergeability; keep its existing Ready status.
+
 ## Desktop acceptance and PR description follow-up
 `docs: record user desktop acceptance for DSH TUI`
 
