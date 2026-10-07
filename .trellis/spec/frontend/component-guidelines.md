@@ -1863,6 +1863,7 @@ onPointerDown={(event) => drag.handlePointerDown(event, { path: node.path, kind:
 
 - Create one controller per terminal attachment; its selection state must start empty and dispose() must remove its DOM listeners.
 - Input owns the current-input buffer and cursor index. Callers must use the controller API rather than passing or mutating those refs.
+- Codex owns Shift+Left/Right (including the queued-question entry). The xterm key handler must clear synthetic input selection and return true before application selection handling, preserving modifiers even with empty input. Reuse session/runtime Codex detection; ordinary shell selection remains unchanged.
 - Use the existing terminalTextEditing and terminalCellWidth helpers for cursor indices and display cells. Do not approximate CJK/wide-character offsets with string length.
 - The shared TUI composer markers belong in src/features/terminal/lib/terminalTui.ts; selection and rendering import the same patterns instead of defining local copies.
 - forwardTerminalInput() consumes a replacement selection before writing to the PTY, then clears only the state required by the original input path.
