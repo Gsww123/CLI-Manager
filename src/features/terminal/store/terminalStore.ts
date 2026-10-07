@@ -7,6 +7,7 @@ import { logError, logInfo, logWarn, recordCrashActivity } from "../../../shared
 import { normalizeDirectCodexStartupCommand } from "../../projects/api/projectStartupCommand";
 import { useSettingsStore } from "../../../shared/preferences/settingsStore";
 import { useSessionStore } from "../api/sessionStore";
+import { requestWorkspaceViewClose } from "../api/workspaceViewLifecycle";
 import { getOsPlatform, normalizeShellKey } from "../../../shared/platform/shell";
 import { parseProjectEnvVars } from "../../providers/api/providerSwitching";
 import { useProjectStore } from "../../projects/api/projectStore";
@@ -620,6 +621,8 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
     },
 
     closeSession: async (id) => {
+      if (get().sessions.find((session) => session.id === id)?.kind === "worktree-conflict"
+        && !await requestWorkspaceViewClose(id)) return;
       const state = get();
       const ptySessionIds = [id];
       const closingSession = state.sessions.find((s) => s.id === id);
@@ -715,6 +718,7 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
         }
       } finally {
         releaseRemoteHistoryConsumer(closingSession);
+        if (closingSession?.kind === "worktree-conflict") return;
         if (isFileEditor) {
           const project = closingSession?.fileEditor?.project;
           if (project) {
@@ -1243,6 +1247,13 @@ export const useTerminalStore = create<TerminalStore>((set, get, api) => {
       const behavior = useSettingsStore.getState().unsplitBehavior;
       const result = unsplitPaneLeaf(owner.paneTree, pane.id, behavior);
       const closedSessionIds = result.closedSessionIds;
+      const conflictTab = state.sessions.find((session) =>
+        session.kind === "worktree-conflict" && closedSessionIds.includes(session.id));
+      if (conflictTab) {
+        get().setActive(conflictTab.id);
+        toast.info(translateCurrent("worktree.conflict.closeBeforeUnsplit"));
+        return;
+      }
       if (
         closedSessionIds.some((closedSessionId) => (
           state.sessions.some((session) => (

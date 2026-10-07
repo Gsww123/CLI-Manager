@@ -412,7 +412,7 @@ export type TreeNode =
   | { type: "project"; project: Project; worktrees?: WorktreeRecord[] }
   | { type: "worktree"; project: Project; worktree: WorktreeRecord };
 
-export type TerminalSessionKind = "pty" | "subagent-transcript" | "file-editor" | "synced-history";
+export type TerminalSessionKind = "pty" | "subagent-transcript" | "file-editor" | "synced-history" | "worktree-conflict";
 
 export interface NativeProviderLaunchSnapshot {
   appType: "claude" | "codex" | "grokbuild";

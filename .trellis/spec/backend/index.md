@@ -32,6 +32,7 @@
 | [Crash Reporting Contracts](./crash-reporting-contracts.md) | 独立崩溃日志、未清洁退出标记、脱敏与多进程边界 | Active |
 | [Linux Graphics Contracts](./linux-graphics-contracts.md) | WebKitGTK/NVIDIA/Wayland 分级兼容、诊断与 AUR 渠道 | Active |
 | [Worktree Isolation Contracts](./worktree-isolation-contracts.md) | Git worktree 并行任务隔离、生命周期和安全边界合约 | Active |
+| [Worktree Conflict Resolution Contracts](./worktree-conflict-resolution-contracts.md) | V1.4.2 冲突会话 IPC、草稿/CAS、精确暂存、恢复与索引读取边界 | Active |
 | [Git Status Contracts](./git-status-contracts.md) | Git 状态收集三条链路（面板/Replay/WSL）的过滤合约与嵌套子仓库处理 | Active |
 | [Command Suggestion Contracts](./command-suggestion-contracts.md) | LLM 命令提示 Tauri command、OpenAI 兼容请求、快速检测、超时与安全回退合约 | Active |
 | [App Data Persistence Contracts](./app-data-persistence-contracts.md) | Stable `.cli-manager` data paths, non-destructive legacy store migration, and safe legacy DB recovery | Active |
