@@ -16,14 +16,14 @@
   "base_branch": "master",
   "worktree_path": null,
   "commit": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/dark-hxx/CLI-Manager/pull/276",
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "2026-10-08: maintainer requested both P2 review fixes, bounded directory enumeration, conflict resolution and push to the existing PR. Continue this task inline; changelog version V1.4.2.",
   "meta": {
     "issue": "275",
-    "changelog_version": "TEMP"
+    "changelog_version": "V1.4.2"
   }
 }

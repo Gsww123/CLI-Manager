@@ -143,6 +143,25 @@ struct ScanBudget<'a> {
     visited: &'a mut BTreeSet<std::path::PathBuf>,
 }
 
+impl ScanBudget<'_> {
+    // 在打开目录和推进迭代器前检查硬预算，不为判断是否结束而额外枚举一项。
+    fn ensure_capacity(&self, output_len: usize) -> Result<(), String> {
+        if output_len >= MAX_INVENTORY_ENTRIES || self.examined >= MAX_INVENTORY_PATHS {
+            Err("extensions_inventory_limit".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+// 枚举后的目录项可被删除或替换成文件；仅忽略这两种失效快照，保留权限等真实错误。
+fn missing_scan_path(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
+}
+
 // Preserve partial warnings without letting a depth cutoff suppress bounded sibling discovery.
 fn scan_local(
     path: &Path,
@@ -165,7 +184,7 @@ fn scan_local(
     }
 }
 
-// Entry/path limits stop the root; depth only truncates a branch. Never recurse into links.
+// 深度只截断当前分支；硬预算先于目录枚举检查，失效条目不打断兄弟扫描，链接不递归。
 fn scan_local_bounded(
     path: &Path,
     cli: ExtensionCli,
@@ -174,13 +193,11 @@ fn scan_local_bounded(
     budget: &mut ScanBudget<'_>,
     output: &mut Vec<InventoryEntry>,
 ) -> Result<(), String> {
-    if output.len() >= MAX_INVENTORY_ENTRIES || budget.examined >= MAX_INVENTORY_PATHS {
-        return Err("extensions_inventory_limit".into());
-    }
+    budget.ensure_capacity(output.len())?;
     budget.examined += 1;
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound && depth == 0 => return Ok(()),
+        Err(e) if missing_scan_path(&e) => return Ok(()),
         Err(_) => return Err("extensions_inventory_unreadable".into()),
     };
     let link = is_link(&metadata);
@@ -234,11 +251,23 @@ fn scan_local_bounded(
             return Ok(());
         }
     }
-    for entry in fs::read_dir(path).map_err(|_| "extensions_inventory_unreadable")? {
-        let entry = entry.map_err(|_| "extensions_inventory_unreadable")?;
-        scan_local_bounded(&entry.path(), cli, kind, depth + 1, budget, output)?;
+    budget.ensure_capacity(output.len())?;
+    let mut children = match fs::read_dir(path) {
+        Ok(children) => children,
+        Err(error) if missing_scan_path(&error) => return Ok(()),
+        Err(_) => return Err("extensions_inventory_unreadable".into()),
+    };
+    loop {
+        budget.ensure_capacity(output.len())?;
+        match children.next() {
+            Some(Ok(entry)) => {
+                scan_local_bounded(&entry.path(), cli, kind, depth + 1, budget, output)?;
+            }
+            Some(Err(error)) if missing_scan_path(&error) => budget.examined += 1,
+            Some(Err(_)) => return Err("extensions_inventory_unreadable".into()),
+            None => return Ok(()),
+        }
     }
-    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -291,8 +320,9 @@ fn scan_wsl(
     Ok((inventory.entries, inventory.limited))
 }
 
+// 内嵌 exhausted/visit：预算先于目录枚举，普通文件复用 DirEntry，目录复查链接类型并跳过消失路径。
 const WSL_SCAN: &str = r#"
-import os, sys, json
+import os, sys, json, stat
 root, cli, kind = sys.argv[1:]
 result = []
 MAX_INVENTORY_DEPTH = 8
@@ -302,17 +332,25 @@ examined = 0
 limited = False
 stopped = False
 
-def visit(path, depth):
-    global examined, limited, stopped
+def exhausted():
+    global limited, stopped
     if len(result) >= MAX_INVENTORY_ENTRIES or examined >= MAX_INVENTORY_PATHS:
         limited = stopped = True
-        return
+    return stopped
+
+def visit(path, depth, entry=None):
+    global examined, limited
+    if exhausted(): return
     examined += 1
-    if not os.path.lexists(path):
-        if depth == 0: return
-        raise FileNotFoundError(path)
-    linked = os.path.islink(path)
-    if not os.path.isdir(path) and not linked: return
+    try:
+        if entry is None or entry.is_dir(follow_symlinks=False):
+            mode = os.lstat(path).st_mode
+            linked, directory = stat.S_ISLNK(mode), stat.S_ISDIR(mode)
+        else:
+            linked, directory = entry.is_symlink(), False
+    except (FileNotFoundError, NotADirectoryError):
+        return
+    if not directory and not linked: return
     if depth > MAX_INVENTORY_DEPTH:
         limited = True
         return
@@ -324,9 +362,17 @@ def visit(path, depth):
             linkTarget=os.path.realpath(path) if linked else None,
             importPath=os.path.realpath(path) if manifest else None, managed=False))
         return
-    for name in sorted(os.listdir(path)):
-        visit(os.path.join(path, name), depth + 1)
-        if stopped: break
+    if exhausted(): return
+    try:
+        with os.scandir(path) as children:
+            while not exhausted():
+                try:
+                    child = next(children)
+                except StopIteration:
+                    return
+                visit(child.path, depth + 1, child)
+    except (FileNotFoundError, NotADirectoryError):
+        return
 visit(root, 0)
 print(json.dumps(dict(entries=result, limited=limited)))
 "#;

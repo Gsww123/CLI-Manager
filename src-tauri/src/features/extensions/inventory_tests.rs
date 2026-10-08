@@ -135,6 +135,67 @@ fn missing_root_is_not_a_scan_failure() {
     assert!(entries.is_empty());
 }
 
+// 枚举后的候选路径可能已消失；不能因此中断同一预算中的其他兄弟。
+#[test]
+fn vanished_child_keeps_already_discovered_and_later_siblings() {
+    let root = tempfile::tempdir().unwrap();
+    add_skill(&root.path().join("before"));
+    add_skill(&root.path().join("after"));
+    let vanished = root.path().join("vanishing.txt");
+    fs::write(&vanished, "fixture").unwrap();
+    fs::remove_file(&vanished).unwrap();
+    let mut visited = BTreeSet::new();
+    let mut budget = ScanBudget {
+        examined: 0,
+        depth_limited: false,
+        visited: &mut visited,
+    };
+    let mut entries = Vec::new();
+    for path in [
+        root.path().join("before"),
+        vanished,
+        root.path().join("after"),
+    ] {
+        scan_local_bounded(
+            &path,
+            ExtensionCli::Claude,
+            "plugin",
+            1,
+            &mut budget,
+            &mut entries,
+        )
+        .unwrap();
+    }
+    assert_eq!(entries.len(), 2);
+    assert_eq!(budget.examined, 3);
+}
+
+// 预算恰好耗尽时保留最后一个允许处理的 Skill，不再窥探下一条目录项。
+#[test]
+fn exact_path_budget_retains_last_skill_and_reports_partial_scan() {
+    let root = tempfile::tempdir().unwrap();
+    add_skill(&root.path().join("skill"));
+    let mut visited = BTreeSet::new();
+    let mut budget = ScanBudget {
+        examined: MAX_INVENTORY_PATHS - 2,
+        depth_limited: false,
+        visited: &mut visited,
+    };
+    let mut entries = Vec::new();
+    let error = scan_local_bounded(
+        root.path(),
+        ExtensionCli::Claude,
+        "plugin",
+        0,
+        &mut budget,
+        &mut entries,
+    )
+    .unwrap_err();
+    assert_eq!(error, "extensions_inventory_limit");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(budget.examined, MAX_INVENTORY_PATHS);
+}
+
 #[test]
 fn embedded_wsl_budgets_match_local_limits() {
     for (name, value) in [
