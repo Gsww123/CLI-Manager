@@ -1,6 +1,11 @@
 # Changelog
 
-## [V1.4.2] - 2026-10-07
+## [V1.4.2] - 2026-10-08
+
+### Scoop Git Bash 检测修复
+
+- 修复 Scoop 安装的 Git Bash 显示未检测到的问题；统一解析层支持 Scoop shims、默认/自定义/全局安装根以及 Git/cmd 等 PATH 布局，设置扫描、图标与内外部终端共用结果。
+- 保留原默认安装与传统 PATH 优先级，不修改用户 PATH；新增候选校验 Git for Windows 布局，避免误选 WSL 或任意同名 bash.exe。安装版需重新构建并更新后生效。
 
 ### Skills 受限扫描的浅层兄弟条目漏检修复
 
@@ -62,7 +67,7 @@
 - 修复 Anthropic 协议供应商生成标题失败：结束原因不再按白名单校验，截断（`max_tokens`/`length`/`incomplete`）及中继返回的未知结束原因不再丢弃可用标题，仅工具调用、拒答、内容过滤与提供方失败判定为不可用；输出上限由 64 提升到 256，降低中继模型回答被截断的概率。
 - Anthropic 协议请求的认证头改为按供应商密钥字段选择：`ANTHROPIC_API_KEY` 使用 `x-api-key`，`ANTHROPIC_AUTH_TOKEN` 使用 `Authorization: Bearer`，与路由代理和模型探测保持一致。
 - 设置-会话历史 的标题 Provider 下拉按 Claude / Codex / Grok Build 分组展示，选项文案改为「供应商 · 模型 · 协议」；就绪列表新增实际请求协议，由后端统一解析协议别名与默认值。
-
+- 
 ## [V1.4.1] - 2026-09-23
 
 ### Codex 排队提问快捷键修复（2026-09-30）
