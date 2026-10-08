@@ -15,7 +15,7 @@
   "branch": "pr-273-local",
   "base_branch": "master",
   "worktree_path": null,
-  "commit": null,
+  "commit": "d7805d7d495b50fda577a3b1a2fe9d2775208186",
   "pr_url": "https://github.com/dark-hxx/CLI-Manager/pull/273",
   "subtasks": [],
   "children": [],
