@@ -1827,3 +1827,110 @@ V1.4.1：保留用户字体优先，增加外部程序选择，修复 WSL 参数
 ### Status
 
 [OK] **Completed**
+
+
+## Session 126: Worktree 合并优化交付与清理
+
+**Date**: 2026-10-07
+**Task**: Worktree 合并优化交付与清理
+**Branch**: `master`
+
+### Summary
+
+用户认可后提交 Worktree 合并恢复与三栏冲突解决；删除两个旧组件及六个 issue 临时缓存，保留设计和回归资料，Refs #271 #269。
+
+### Main Changes
+
+- 终端主题、自适应拖拽列宽、逐块解决和显式应用结果；V1.4.2 记录已同步。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2f4175ab` | (see git log) |
+
+### Testing
+
+- [OK] 清理后 Node 定向 28/28、TypeScript 和 strict 架构检查通过；此前双语浏览器验证通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 完整原生 WebView2 环境矩阵与 64,887 文件性能复测仍未完成，历史证据保留；未推送远程。
+
+
+## Session 127: V1.4.2 ZCode CLI 类别与选项排序
+
+**Date**: 2026-10-08
+**Task**: V1.4.2 ZCode CLI 类别与选项排序
+**Branch**: `pr-273-local`
+
+### Summary
+
+为 PR #273 增加 ZCode CLI 类别和智谱图标，项目工具列表继续由统一描述表派生；完成 CLI 优先顺序、隐藏预设及 V1.4.2 文档记录。
+
+### Main Changes
+
+- 默认命令 zcode；新增工具自动追加到项目候选末尾。
+- 工具优先顺序 claude、codex、pi、grok、dsh-tui；隐藏 goose、amp、aider、crush 预设并保留已有项目识别。
+- 任务已归档，交付目标为 jackie-cqz/CLI-Manager 的 fix/deepseek-harness-webui 分支（PR #273）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7805d7d495b50fda577a3b1a2fe9d2775208186` | (see git log) |
+
+### Testing
+
+- [OK] 现有 DeepSeek TUI 与 Agent terminal 回归：16 passed，0 failed。
+- [OK] TypeScript、严格架构检查及 git diff --check 通过；GitNexus 提交前检查 LOW。
+- [OK] 一次性生产模块核对：ZCode 描述、图标、元数据、命令参数拼接和实际项目候选顺序通过。
+- [NOT RUN] 本机未安装 ZCode，真实 TUI、界面语言切换及 WSL/SSH 端到端未测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装官方 ZCode 后验证项目新建／编辑、终端启动和交互。
+
+
+## Session 128: PR 276 Skills 扫描修复与性能验证
+
+**Date**: 2026-10-08
+**Task**: PR 276 Skills 扫描修复与性能验证
+**Branch**: `pr-276-review-fixes`
+
+### Summary
+
+修复两个 P2：失效路径保留兄弟结果，目录枚举在预算前检查；合入当前 master 并解决 CHANGELOG 冲突，记录 V1.4.2。
+
+### Main Changes
+
+- WSL 惰性 scandir、普通文件类型缓存、目录链接类型复查；本机同步处理失效路径和精确预算边界。
+- 新增目录迭代次数、句柄释放、路径查询与删除/替换竞态回归；更新功能清单及扩展契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0eed48b0` | (see git log) |
+| `f78bb83d` | (see git log) |
+
+### Testing
+
+- [OK] Rust inventory 11 passed; Node suites 34 passed, 1 POSIX skip; cargo check, tsc, strict architecture, rustfmt and diff checks passed.
+- [OK] Windows embedded Python: 20,000 files, five-run median 2.116 s -> 0.0192 s; enumerated entries 20,000 -> 9,999; stat API calls 30,001 -> 2.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Real WSL transport and POSIX symlink acceptance remain unverified on this host; delivery targets existing PR 276.
