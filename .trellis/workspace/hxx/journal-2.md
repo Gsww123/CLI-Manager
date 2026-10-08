@@ -1860,3 +1860,41 @@ V1.4.1：保留用户字体优先，增加外部程序选择，修复 WSL 参数
 ### Next Steps
 
 - 完整原生 WebView2 环境矩阵与 64,887 文件性能复测仍未完成，历史证据保留；未推送远程。
+
+
+## Session 127: V1.4.2 ZCode CLI 类别与选项排序
+
+**Date**: 2026-10-08
+**Task**: V1.4.2 ZCode CLI 类别与选项排序
+**Branch**: `pr-273-local`
+
+### Summary
+
+为 PR #273 增加 ZCode CLI 类别和智谱图标，项目工具列表继续由统一描述表派生；完成 CLI 优先顺序、隐藏预设及 V1.4.2 文档记录。
+
+### Main Changes
+
+- 默认命令 zcode；新增工具自动追加到项目候选末尾。
+- 工具优先顺序 claude、codex、pi、grok、dsh-tui；隐藏 goose、amp、aider、crush 预设并保留已有项目识别。
+- 任务已归档，交付目标为 jackie-cqz/CLI-Manager 的 fix/deepseek-harness-webui 分支（PR #273）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7805d7d495b50fda577a3b1a2fe9d2775208186` | (see git log) |
+
+### Testing
+
+- [OK] 现有 DeepSeek TUI 与 Agent terminal 回归：16 passed，0 failed。
+- [OK] TypeScript、严格架构检查及 git diff --check 通过；GitNexus 提交前检查 LOW。
+- [OK] 一次性生产模块核对：ZCode 描述、图标、元数据、命令参数拼接和实际项目候选顺序通过。
+- [NOT RUN] 本机未安装 ZCode，真实 TUI、界面语言切换及 WSL/SSH 端到端未测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装官方 ZCode 后验证项目新建／编辑、终端启动和交互。
