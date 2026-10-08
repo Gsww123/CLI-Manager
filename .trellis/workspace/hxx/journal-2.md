@@ -1898,3 +1898,39 @@ V1.4.1：保留用户字体优先，增加外部程序选择，修复 WSL 参数
 ### Next Steps
 
 - 安装官方 ZCode 后验证项目新建／编辑、终端启动和交互。
+
+
+## Session 128: PR 276 Skills 扫描修复与性能验证
+
+**Date**: 2026-10-08
+**Task**: PR 276 Skills 扫描修复与性能验证
+**Branch**: `pr-276-review-fixes`
+
+### Summary
+
+修复两个 P2：失效路径保留兄弟结果，目录枚举在预算前检查；合入当前 master 并解决 CHANGELOG 冲突，记录 V1.4.2。
+
+### Main Changes
+
+- WSL 惰性 scandir、普通文件类型缓存、目录链接类型复查；本机同步处理失效路径和精确预算边界。
+- 新增目录迭代次数、句柄释放、路径查询与删除/替换竞态回归；更新功能清单及扩展契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0eed48b0` | (see git log) |
+| `f78bb83d` | (see git log) |
+
+### Testing
+
+- [OK] Rust inventory 11 passed; Node suites 34 passed, 1 POSIX skip; cargo check, tsc, strict architecture, rustfmt and diff checks passed.
+- [OK] Windows embedded Python: 20,000 files, five-run median 2.116 s -> 0.0192 s; enumerated entries 20,000 -> 9,999; stat API calls 30,001 -> 2.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Real WSL transport and POSIX symlink acceptance remain unverified on this host; delivery targets existing PR 276.

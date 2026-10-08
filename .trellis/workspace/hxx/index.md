@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 127
+- **Total Sessions**: 128
 - **Last Active**: 2026-10-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1900 | Active |
+| `journal-2.md` | ~1936 | Active |
 | `journal-1.md` | ~2014 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 128 | 2026-10-08 | PR 276 Skills 扫描修复与性能验证 | `0eed48b0`, `f78bb83d` | `pr-276-review-fixes` |
 | 127 | 2026-10-08 | V1.4.2 ZCode CLI 类别与选项排序 | `d7805d7d495b50fda577a3b1a2fe9d2775208186` | `pr-273-local` |
 | 126 | 2026-10-07 | Worktree 合并优化交付与清理 | `2f4175ab` | `master` |
 | 125 | 2026-09-20 | 终端字体回退与外部程序选择 | `77eb48be` | `master` |
