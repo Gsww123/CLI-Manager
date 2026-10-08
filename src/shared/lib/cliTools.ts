@@ -20,7 +20,8 @@ export type CliToolIconKey =
   | "aider"
   | "crush"
   | "pi"
-  | "deepseek-harness";
+  | "deepseek-harness"
+  | "zcode";
 
 export interface CliToolDescriptor {
   id: string;
@@ -158,6 +159,14 @@ export const CLI_TOOL_DESCRIPTORS: readonly CliToolDescriptor[] = [
     vendor: null,
     imagePasteMode: "at",
     historySourceId: "pi",
+  },
+  {
+    id: "zcode",
+    command: "zcode",
+    label: "ZCode",
+    icon: "zcode",
+    vendor: "zhipu",
+    imagePasteMode: "unsupported",
   },
 ];
 

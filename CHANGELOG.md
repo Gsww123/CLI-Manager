@@ -1,12 +1,10 @@
 # Changelog
 
-## [TEMP] - 2026-10-07
+## [V1.4.2] - 2026-10-07
 
 ### DeepSeek Harness TUI 合并兼容
 
 - 合入 V1.4.2 的 Worktree 冲突工作区与历史标题修复；解决项目中英文翻译的相邻新增冲突，完整保留 DSH TUI 校验文案及 Worktree 文案，原生 `dsh-tui` 启动与恢复行为保持兼容。
-
-## [TEMP] - 2026-10-02
 
 ### DeepSeek Harness TUI 配置统一
 
@@ -14,8 +12,6 @@
 - 清理对应中英文界面文案；旧项目已有的源码环境变量和自定义启动命令保留兼容，不自动改写用户配置。
 - 正常安装版实际直接执行 `dsh-tui`/`dst`，不再追加管理器 bridge patch、React preload 或清理恢复变量的 Shell 脚本；沿用原生参数和用户环境，已有明确 ID 的恢复仍支持。移除旧管理器缓存 overlay，保留用户 patch 与 prompt 字面参数。
 - 修复管理器 React 兼容层破坏普通安装 profile 的依赖闭包、触发 `useRef` 空值及退出码 1 的问题；该兼容层仅保留给旧直接宿主命令的外部源码链接。正常启动预检不再要求私有 Channel registry 或限定 TUI 0.12.x；默认新会话 ID 由 TUI 自行管理，不再自动采集到管理器。
-
-## [TEMP] - 2026-10-01
 
 ### DeepSeek Harness TUI
 
@@ -31,7 +27,10 @@
 - Bridge 仅启动时写入管理器内容寻址缓存；追加命令 overlay，不修改用户插件/profile。WSL/SSH 使用各自的宿主和 profile，不执行本机 profile 校验或注入本机 bridge；明确会话 ID 可以传递，guest 新会话暂不自动捕获身份。WSL 保留已有 WSLENV 并转发 DSH 恢复、home 和 Node 模式变量。
 - DSH 与插件继续管理对话存储、模型和自身插件配置；本次不新增 CLI-Manager 历史/Token 统计、供应商、Hook 完成通知或 MCP/Skills 扩展适配。管理器 bridge 使用版本限定的内部只读接口，并非上游公开稳定契约。
 
-## [V1.4.2] - 2026-09-30
+### 项目 CLI 工具选项
+
+- 新增官方 ZCode CLI 类别与智谱图标，新建、编辑和克隆项目可选择 `ZCode`；默认命令为 `zcode`，复用现有项目参数、Shell 和环境配置。该选项追加在现有工具之后；本次仅增加类别，不包含 ZCode 历史、统计、Hook 或原生会话恢复适配。
+- 新建、编辑和克隆项目的 CLI 工具列表优先显示 `claude`、`codex`、`pi`、`grok`、`dsh-tui`，其余工具保持原有相对顺序；移除 `goose`、`amp`、`aider`、`crush` 预设选项，保留已有项目的工具识别与自定义命令输入。
 
 ### Worktree 合并恢复与冲突解决（验收中）
 

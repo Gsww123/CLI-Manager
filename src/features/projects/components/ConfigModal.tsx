@@ -61,7 +61,18 @@ interface SshPathCheckResult {
   gitRepository: boolean;
 }
 
-const CLI_TOOL_OPTIONS = CLI_TOOL_DESCRIPTORS.map((tool) => tool.command);
+const CLI_TOOL_PRIORITY = ["claude", "codex", "pi", "grok", "dsh-tui"];
+const HIDDEN_CLI_TOOLS = new Set(["goose", "amp", "aider", "crush"]);
+// 未置顶工具维持统一描述表的原顺序，新增工具也会自动加入。
+const CLI_TOOL_OPTIONS = CLI_TOOL_DESCRIPTORS
+  .map((tool) => tool.command)
+  .filter((command) => !HIDDEN_CLI_TOOLS.has(command))
+  .sort((left, right) => {
+    const leftIndex = CLI_TOOL_PRIORITY.indexOf(left);
+    const rightIndex = CLI_TOOL_PRIORITY.indexOf(right);
+    return (leftIndex < 0 ? CLI_TOOL_PRIORITY.length : leftIndex)
+      - (rightIndex < 0 ? CLI_TOOL_PRIORITY.length : rightIndex);
+  });
 const WORKTREE_STRATEGIES: WorktreeIsolationStrategy[] = ["disabled", "prompt", "autoParallel", "always"];
 const WORKTREE_STRATEGY_LABEL_KEYS: Record<WorktreeIsolationStrategy, TranslationKey> = {
   prompt: "worktree.strategy.prompt",
